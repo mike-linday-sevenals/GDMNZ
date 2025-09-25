@@ -213,6 +213,26 @@ async function sbDeleteFish(ids){
   const { error } = await sb.from('fish').delete().in('id', ids);
   if(error) throw error;
 }
+
+/** SPONSORS (overall) **/
+async function sbListSponsors(){
+  const { data, error } = await sb.from('sponsors').select('id, name').order('name');
+  if (error) throw error;
+  return data || [];
+}
+async function sbAddSponsor(name){
+  const { data, error } = await sb.from('sponsors')
+    .insert({ name })
+    .select('id, name')
+    .single();
+  if (error) throw error;
+  return data;
+}
+async function sbDeleteSponsor(id){
+  const { error } = await sb.from('sponsors').delete().eq('id', id);
+  if (error) throw error;
+}
+
 </script>
 
 <!-- =======================================================
@@ -260,6 +280,8 @@ let G_SPECIES = [];                                      // array of {id,name}
 let G_SPECIES_BY_NAME = new Map();                       // name -> id
 let G_COMPETITORS = [];                                  // db rows
 let G_FISH = [];                                         // joined fish rows
+let G_SPONSORS = [];                                  // [{id,name}]
+
 
 async function hydrateFromDB(){
   // settings
@@ -271,12 +293,16 @@ async function hydrateFromDB(){
   G_SPECIES_BY_NAME.clear();
   G_SPECIES.forEach(x => G_SPECIES_BY_NAME.set(x.name, x.id));
 
-  // competitors (for register table & submit dropdown)
+  // competitors
   G_COMPETITORS = await sbListCompetitors();
 
-  // fish (for results & prizegiving)
+  // fish
   G_FISH = await sbListFishJoined();
+
+  // sponsors (NEW)
+  G_SPONSORS = await sbListSponsors();
 }
+
 </script>
 
 <!-- =======================================================
@@ -843,9 +869,17 @@ function renderPrizeGiving(root){
           `;
         }
       }).join("")}
-      ${overallSponsorsHTML()}
+      ${function overallSponsorsHTML(){
+  if (!G_SPONSORS.length) return "";
+  return `
+    <section class="card">
+      <h3>Thanks to our Sponsors</h3>
+      <div class="flex">
+        ${G_SPONSORS.map(s => `<span class="badge">${escapeHtml(s.name)}</span>`).join(" ")}
+      </div>
     </section>
   `;
+
 
   function sectionHTML(speciesName, label, places, ranked, prizeMap){
     return `
@@ -934,23 +968,62 @@ function renderAdmin(root){
             <div class="sub">Logo is stored locally in this browser for offline use.</div>
           </div>
           <hr style="border:none;border-top:1px solid var(--border);margin:12px 0"/>
-          <h3>Overall Sponsors (local)</h3>
-          <div class="actions">
-            <input id="sponsor-input" placeholder="Add sponsor name"/>
-            <button class="btn" id="sponsor-add">Add Sponsor</button>
-          </div>
-          <div id="sponsor-list" class="flex" style="margin-top:8px"></div>
-        </div>
+<h3>Overall Sponsors (DB)</h3>
+<div class="actions">
+  <input id="sponsor-input" placeholder="Add sponsor name"/>
+  <button class="btn" id="sponsor-add">Add Sponsor</button>
+</div>
+<div id="sponsor-list" class="flex" style="margin-top:8px"></div>
+<div class="sub">Sponsors are stored in Supabase.</div>
+
       </div>
     </section>
   `;
 
-  function paintSponsors(){
-    const S=loadLocal(STORE_KEYS.sponsors,{overall:[]}); const wrap=$("#sponsor-list");
-    wrap.innerHTML = (S.overall||[]).map((n,i)=>`<span class="pill">${escapeHtml(n)} <button class="btn danger" style="padding:4px 8px" data-i="${i}">remove</button></span>`).join(" ");
-    wrap.querySelectorAll("button").forEach(b=> b.onclick=(e)=>{ const idx=parseInt(e.target.getAttribute("data-i")); const cur=loadLocal(STORE_KEYS.sponsors,{overall:[]}); cur.overall.splice(idx,1); saveLocal(STORE_KEYS.sponsors,cur); paintSponsors(); });
+// Paint sponsor chips from DB state
+async function refreshSponsors(){
+  // ensure we have latest from DB
+  G_SPONSORS = await sbListSponsors();
+  const wrap = $("#sponsor-list");
+  wrap.innerHTML = G_SPONSORS.map(s => `
+    <span class="pill">
+      ${escapeHtml(s.name)}
+      <button class="btn danger" style="padding:4px 8px" data-id="${s.id}">remove</button>
+    </span>
+  `).join(" ");
+  // wire remove buttons
+  wrap.querySelectorAll("button[data-id]").forEach(btn => {
+    btn.onclick = async (e) => {
+      const id = e.currentTarget.getAttribute("data-id");
+      if (!confirm("Remove this sponsor?")) return;
+      await sbDeleteSponsor(id);
+      await refreshSponsors();
+      alert("Sponsor removed.");
+    };
+  });
+}
+
+// Initial paint
+refreshSponsors();
+
+// Add sponsor
+$("#sponsor-add").onclick = async () => {
+  const v = $("#sponsor-input").value.trim();
+  if (!v) return;
+  try{
+    await sbAddSponsor(v);
+    $("#sponsor-input").value = "";
+    await refreshSponsors();
+    alert("Sponsor added.");
+  }catch(err){
+    if (String(err?.message || "").includes("duplicate key")) {
+      alert("Sponsor already exists.");
+    } else {
+      alert("Failed to add sponsor: " + err.message);
+    }
   }
-  paintSponsors();
+};
+
 
   $("#btn-save-settings").onclick=async()=>{
     // Local parts
