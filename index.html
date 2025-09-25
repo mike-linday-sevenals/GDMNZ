@@ -75,7 +75,7 @@
 
   <main class="wrap">
     <section id="view"></section>
-    <div class="footer">Single-file app. Competitors, fish & results are stored in Supabase. Prizes/branding are local for now.</div>
+<div class="footer">Single-file app. Competitors, fish, results & sponsors are stored in Supabase. Prizes/branding are local for now.</div>
   </main>
 
 <!-- =======================================================
@@ -843,7 +843,6 @@ function renderPrizeGiving(root){
       return ta - tb;
     });
   }
-
   root.innerHTML = `
     <section class="card">
       <h2>Prize Giving</h2>
@@ -869,7 +868,11 @@ function renderPrizeGiving(root){
           `;
         }
       }).join("")}
-      ${function overallSponsorsHTML(){
+      ${overallSponsorsHTML()}
+    </section>
+  `;
+
+function overallSponsorsHTML(){
   if (!G_SPONSORS.length) return "";
   return `
     <section class="card">
@@ -879,6 +882,7 @@ function renderPrizeGiving(root){
       </div>
     </section>
   `;
+}
 
 
   function sectionHTML(speciesName, label, places, ranked, prizeMap){
@@ -916,11 +920,7 @@ function renderPrizeGiving(root){
       </table>
     `;
   }
-  function overallSponsorsHTML(){
-    const S=loadLocal(STORE_KEYS.sponsors,{overall:[]});
-    if(!S.overall || S.overall.length===0) return "";
-    return `<section class="card"><h3>Thanks to our Sponsors</h3><div class="flex">${S.overall.map(n=>`<span class="badge">${escapeHtml(n)}</span>`).join(" ")}</div></section>`;
-  }
+
 }
 </script>
 
@@ -1066,10 +1066,7 @@ $("#sponsor-add").onclick = async () => {
     reader.readAsDataURL(f);
   });
 
-  $("#sponsor-add").onclick=()=>{
-    const v=$("#sponsor-input").value.trim(); if(!v) return;
-    const cur=loadLocal(STORE_KEYS.sponsors,{overall:[]}); cur.overall.push(v); saveLocal(STORE_KEYS.sponsors,cur); $("#sponsor-input").value=""; paintSponsors();
-  };
+
 }
 </script>
 
