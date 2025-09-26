@@ -1,24 +1,19 @@
 ﻿name: Azure Static Web Apps CI/CD
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
 
 jobs:
   build_and_deploy_job:
     runs-on: ubuntu-latest
-    name: Build and Deploy
     steps:
       - uses: actions/checkout@v4
 
-      - name: Use Node.js
+      - name: Use Node 20
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
-
-      - name: Install deps
-        run: npm ci
+          node-version: 20
+          cache: npm
 
       - name: Create .env.production for Vite
         run: |
@@ -27,16 +22,13 @@ jobs:
           VITE_SUPABASE_ANON_KEY=${{ secrets.VITE_SUPABASE_ANON_KEY }}
           EOF
 
-      - name: Build (Vite outputs to /build)
-        run: npm run build
-
+      # Let the Azure action install & build for us
       - name: Deploy to Azure Static Web Apps
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_LIVELY_STONE_0B2EE2810 }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: upload
-          skip_app_build: true
-          app_location: "build"
+          app_location: "."          # app is at repo root
           api_location: ""
-          output_location: ""
+          output_location: "dist"    # Vite default
