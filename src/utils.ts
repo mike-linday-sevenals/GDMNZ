@@ -1,4 +1,7 @@
-export const DEFAULT_SPECIES = ['Snapper','Kingfish','Kahawai','Trevally','Gurnard','John Dory','Crayfish / Cray (Diver)','Dive Snapper','Yellow Fin Tuna']
+export const DEFAULT_SPECIES = [
+  'Snapper','Kingfish','Kahawai','Trevally','Gurnard','John Dory',
+  'Crayfish / Cray (Diver)','Dive Snapper','Yellow Fin Tuna'
+]
 
 export const DEFAULT_SETTINGS = {
   earlyBirdCutoff: '2025-10-01',
@@ -23,10 +26,21 @@ export function fmt(n:number, d=2){ return Number(n).toFixed(d) }
 export function formatNZ(iso?: string | null){
   if(!iso) return ''
   const d = new Date((iso.length===10? iso+'T00:00:00': iso))
-  const dd=String(d.getDate()).padStart(2,'0'); const mm=String(d.getMonth()+1).padStart(2,'0'); const yy=d.getFullYear()
+  const dd=String(d.getDate()).padStart(2,'0')
+  const mm=String(d.getMonth()+1).padStart(2,'0')
+  const yy=d.getFullYear()
   return `${dd}/${mm}/${yy}`
 }
-export function escapeHtml(s:string){ return (s||'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;') }
+
+// No replaceAll — works on older targets
+export function escapeHtml(s: string){
+  const v = s ?? ''
+  return v
+    .replace(/&/g, '&amp;')   // & first so we don't double-encode
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
 
 export function computeFee(settings:any, category:'Adult'|'Junior', paidOn:string){
   if(!paidOn) return null
