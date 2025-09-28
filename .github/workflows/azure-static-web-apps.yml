@@ -1,12 +1,14 @@
 name: Azure Static Web Apps CI/CD
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+    types: [ opened, synchronize, reopened ]
 
 jobs:
   build_and_deploy_job:
     runs-on: ubuntu-latest
-    name: Build and Deploy (manual)
     steps:
       - uses: actions/checkout@v4
 
@@ -14,23 +16,27 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: "npm"
+          cache: npm
 
-      - name: Install deps from lockfile
-        run: npm ci
-        working-directory: my-react-app
+      - name: Create .env.production for Vite
+        run: |
+          cat > .env.production <<EOF
+          VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY=${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          EOF
 
-      - name: Build
-        run: npm run build
-        working-directory: my-react-app
+      - name: Install deps & build (Vite)
+        run: |
+          npm ci
+          npm run build
 
-      - name: Deploy
-        id: builddeploy
+      - name: Deploy to Azure Static Web Apps (upload built folder)
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_LIVELY_STONE_0B2EE2810 }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          action: "upload"
-          app_location: "my-react-app"
-          api_location: ""
-          output_location: "build"
+          action: upload
+          app_location: "."              # not used when skipping build, but fine
+          app_artifact_location: "build" # ← upload this folder
+          skip_app_build: true           # ← prevents Oryx from rebuilding
+          production_branch: "main"
