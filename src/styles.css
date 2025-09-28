@@ -51,3 +51,80 @@ summary{cursor:pointer;color:#111}
 .pad-around{padding:6px 10px;border-radius:10px;border:1px dashed var(--border);background:#fff}
 .flex{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 @media(max-width:900px){.col-6,.col-4,.col-3,.col-8{grid-column:span 12} .two,.three{grid-template-columns:1fr}}
+
+/* =========================================================
+   Admin layout polish (alignment + cleanup)
+   ========================================================= */
+
+/* Card spacing */
+.admin-card{padding-top:16px;}
+.admin-layout{align-items:start;}
+
+/* Replace ad-hoc rows with a uniform 12-col form grid */
+.form-grid{
+  display:grid;
+  grid-template-columns:repeat(12,minmax(0,1fr));
+  gap:12px;
+}
+.field{display:flex;flex-direction:column;gap:6px;}
+.field>label{font-size:12px;color:var(--text-muted);}
+
+/* Span helpers (like Tailwind) */
+.span-2{grid-column:span 2;}
+.span-3{grid-column:span 3;}
+.span-4{grid-column:span 4;}
+.span-6{grid-column:span 6;}
+.span-8{grid-column:span 8;}
+.span-12{grid-column:span 12;}
+
+/* Uniform control sizing */
+.field input[type="text"],
+.field input[type="number"],
+.field input[type="date"],
+.field input[type="file"],
+.field select,
+.field textarea{
+  width:100%;
+  height:40px;
+  padding:8px 10px;
+  border:1px solid var(--border);
+  border-radius:8px;
+  background:#fff;
+  box-sizing:border-box;
+}
+
+/* Let textareas expand nicely (AdminSponsors also autosizes via JS) */
+.field textarea{min-height:40px;resize:vertical;}
+
+/* Remove old yellow highlight from note blocks */
+.sub{background:transparent !important;padding:0 !important;}
+
+/* Divider used before Sponsors card */
+/* Replace previous .currency rules with this block */
+.currency {
+  display: flex;
+  align-items: center;   /* forces $ and input to share vertical center */
+  gap: 4px;              /* spacing between $ and value */
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  padding: 0 10px;
+}
+
+.currency > span {
+  color: var(--text-muted);
+  font-size: 16px;
+  line-height: 1;        /* no extra vertical padding for $ */
+}
+
+.currency > input {
+  flex: 1;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-size: 16px;
+  line-height: 1;        /* text sits centered like the $ */
+  height: 100%;          /* matches parent height */
+}
+

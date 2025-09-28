@@ -1,3 +1,21 @@
 {
-  "navigationFallback": { "rewrite": "/index.html", "exclude": ["/assets/*", "/*.css", "/*.js"] }
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": [
+      "/assets/*",
+      "*.js",
+      "*.css",
+      "*.svg",
+      "*.png",
+      "*.jpg",
+      "*.ico",
+      "/api/*"
+    ]
+  },
+  "responseOverrides": {
+    "404": {
+      "rewrite": "/index.html",
+      "statusCode": 200
+    }
+  }
 }
