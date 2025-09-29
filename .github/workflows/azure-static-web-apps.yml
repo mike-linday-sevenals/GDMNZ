@@ -8,8 +8,18 @@ on:
 jobs:
   build_and_deploy:
     runs-on: ubuntu-latest
+    concurrency:
+      group: swa-prod
+      cancel-in-progress: true
+
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
 
       - name: Create .env.production for Vite
         run: |
@@ -18,22 +28,29 @@ jobs:
           VITE_SUPABASE_ANON_KEY=${{ secrets.VITE_SUPABASE_ANON_KEY }}
           EOF
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
       - name: Install deps
         run: npm ci
+
+      # Guard: Vite needs a root index.html (dev entry) to build dist/
+      - name: Verify Vite entry exists
+        run: test -f index.html
 
       - name: Build (Vite -> dist)
         run: npm run build
 
-      - name: Deploy to Azure Static Web Apps
+      # Guard: built HTML must point to /assets/*.js, not /src/main.tsx
+      - name: Sanity check built HTML
+        run: |
+          if grep -q "src/main.tsx" dist/index.html; then
+            echo "dist/index.html still references /src/main.tsx"; exit 1;
+          fi
+
+      - name: Deploy to Azure Static Web Apps (upload dist)
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_LIVELY_STONE_0B2EE2810 }}
           action: upload
-          app_location: "dist"              # serve the built folder
+          app_location: dist
           skip_app_build: true
           production_branch: main
-          config_file_location: "/"         # use staticwebapp.config.json from repo root (optional)
+          config_file_location: /
