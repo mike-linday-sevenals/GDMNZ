@@ -36,5 +36,5 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: "upload"
           app_location: "/"        # repo root
-          output_location: "build" # your Vite outDir
+          output_location: "dist" # your Vite outDir
           production_branch: "main"
