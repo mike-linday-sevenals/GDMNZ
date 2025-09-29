@@ -1,5 +1,4 @@
-# .github/workflows/azure-static-web-apps.yml
-name: Azure Static Web Apps CI/CD
+﻿name: Azure Static Web Apps CI/CD
 
 on:
   push:
@@ -12,7 +11,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Optional: create env file for Vite prod build
       - name: Create .env.production for Vite
         run: |
           cat > .env.production <<EOF
@@ -37,7 +35,6 @@ jobs:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_LIVELY_STONE_0B2EE2810 }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: "upload"
-          app_location: "/"        # repo root where package.json lives
-          output_location: "build" # 👈 your actual Vite outDir
+          app_location: "/"        # repo root
+          output_location: "build" # your Vite outDir
           production_branch: "main"
-
