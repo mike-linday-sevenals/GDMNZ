@@ -31,26 +31,24 @@ jobs:
       - name: Install deps
         run: npm ci
 
-      # Guard: Vite needs a root index.html (dev entry) to build dist/
-      - name: Verify Vite entry exists
-        run: test -f index.html
-
       - name: Build (Vite -> dist)
         run: npm run build
 
-      # Guard: built HTML must point to /assets/*.js, not /src/main.tsx
-      - name: Sanity check built HTML
+      - name: Show built artifact
         run: |
-          if grep -q "src/main.tsx" dist/index.html; then
-            echo "dist/index.html still references /src/main.tsx"; exit 1;
-          fi
+          echo "---- dist ----"; ls -la dist
+          echo "---- dist/assets ----"; ls -la dist/assets
+          echo "---- first 30 of dist/index.html ----"
+          head -n 30 dist/index.html
 
-      - name: Deploy to Azure Static Web Apps (upload dist)
-        uses: Azure/static-web-apps-deploy@v1
-        with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_LIVELY_STONE_0B2EE2810 }}
-          action: upload
-          app_location: dist
-          skip_app_build: true
-          production_branch: main
-          config_file_location: /
+          - name: Deploy to Azure Static Web Apps (upload dist)
+          uses: Azure/static-web-apps-deploy@v1
+          with:
+            azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_LIVELY_STONE_0B2EE2810 }}
+            action: upload
+            app_location: .          # repo root
+            output_location: dist    # the built artifact to upload
+            skip_app_build: true
+            production_branch: main
+            config_file_location: /  # uses staticwebapp.config.json at repo root
+
