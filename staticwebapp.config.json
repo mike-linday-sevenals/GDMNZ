@@ -3,19 +3,21 @@
     "rewrite": "/index.html",
     "exclude": [
       "/assets/*",
-      "*.js",
-      "*.css",
-      "*.svg",
-      "*.png",
-      "*.jpg",
-      "*.ico",
-      "/api/*"
+      "/assets/**",
+      "**/*.js",
+      "**/*.css",
+      "**/*.map",
+      "**/*.png",
+      "**/*.jpg",
+      "**/*.svg",
+      "**/*.ico",
+      "/favicon.ico",
+      "/robots.txt",
+      "/sitemap.xml"
     ]
   },
-  "responseOverrides": {
-    "404": {
-      "rewrite": "/index.html",
-      "statusCode": 200
-    }
+  "mimeTypes": {
+    ".js": "application/javascript",
+    ".css": "text/css"
   }
 }
