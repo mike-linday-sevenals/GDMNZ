@@ -5,11 +5,67 @@ import type { Settings, Species, Competitor, FishJoined } from '@/types'
 
 // ---- helpers (local fallback) ----
 function loadLocal<T>(key:string, fallback:T): T {
-  try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) as T : structuredClone(fallback) }
-  catch { return structuredClone(fallback) }
+  try {
+    const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem(key)
+    return raw ? (JSON.parse(raw) as T) : structuredClone(fallback)
+  } catch {
+    return structuredClone(fallback)
+  }
 }
-function saveLocal<T>(key:string, value:T){ localStorage.setItem(key, JSON.stringify(value)) }
-const uid = () => (crypto as any).randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)
+function saveLocal<T>(key:string, value:T){
+  if (typeof localStorage === 'undefined') return
+  localStorage.setItem(key, JSON.stringify(value))
+}
+const uid = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+  ? crypto.randomUUID()
+  : Math.random().toString(36).slice(2)
+
+type RawSpeciesRow = { id: number; name: string; is_measure?: boolean | null }
+type RawCompetitorRow = {
+  id: string | number
+  full_name: string
+  category: 'adult' | 'junior'
+  boat?: string | null
+  email?: string | null
+  phone?: string | null
+  paid_on: string
+  created_at?: string | null
+}
+type LocalFishRow = {
+  id: string
+  competitor_id: Competitor['id']
+  species_id: number
+  weight_kg?: number | null
+  length_cm?: number | null
+  time_caught?: string | null
+  created_at?: string
+}
+type RawFishJoinedRow = {
+  id: string | number
+  weight_kg?: number | null
+  length_cm?: number | null
+  time_caught?: string | null
+  created_at?: string | null
+  competitor?: RawCompetitorRow | null
+  species?: RawSpeciesRow | null
+}
+
+const mapSpecies = (row: RawSpeciesRow): Species => ({
+  id: row.id,
+  name: row.name,
+  is_measure: row.is_measure ?? undefined,
+})
+
+const mapCompetitor = (row: RawCompetitorRow): Competitor => ({
+  id: row.id,
+  full_name: row.full_name,
+  category: row.category,
+  boat: row.boat ?? null,
+  email: row.email ?? null,
+  phone: row.phone ?? null,
+  paid_on: row.paid_on,
+  created_at: row.created_at ?? undefined,
+})
 
 function safeUrl(u?: string | null){
   if (!u || typeof u !== 'string') return null
@@ -60,20 +116,20 @@ async function getCurrentCompetitionId(): Promise<string> {
 // SETTINGS
 // ===================================================================================
 export async function fetchSettings(): Promise<Settings> {
-  if (!client) return structuredClone(DEFAULT_SETTINGS)
+  const fallback = structuredClone(DEFAULT_SETTINGS) as Settings
+  if (!client) return fallback
 
   const { data, error } = await client.from('settings').select('*').limit(1).maybeSingle()
-  if (error) { console.warn('[settings] fetch error', error); return structuredClone(DEFAULT_SETTINGS) }
-  if (!data) return structuredClone(DEFAULT_SETTINGS)
+  if (error) { console.warn('[settings] fetch error', error); return fallback }
+  if (!data) return fallback
 
   return {
-    earlyBirdCutoff: data.early_bird_cutoff || DEFAULT_SETTINGS.earlyBirdCutoff,
-    fees: DEFAULT_SETTINGS.fees,
-    decimals: DEFAULT_SETTINGS.decimals,
-    showTime: data.time_visible ?? DEFAULT_SETTINGS.showTime,
-    requireTime: data.time_required ?? DEFAULT_SETTINGS.requireTime,
-    compMode: (data.comp_mode || DEFAULT_SETTINGS.compMode),
-    prizeMode: (data.prize_mode || DEFAULT_SETTINGS.prizeMode)
+    ...fallback,
+    earlyBirdCutoff: data.early_bird_cutoff || fallback.earlyBirdCutoff,
+    showTime: data.time_visible ?? fallback.showTime,
+    requireTime: data.time_required ?? fallback.requireTime,
+    compMode: (data.comp_mode || fallback.compMode),
+    prizeMode: (data.prize_mode || fallback.prizeMode)
   }
 }
 
@@ -85,7 +141,7 @@ export async function updateSettings(payload: Partial<{
   prizeMode: 'combined'|'split'
 }>): Promise<void> {
   if (!client) return
-  const patch: any = {}
+  const patch: Record<string, unknown> = {}
   if ('earlyBirdCutoff' in payload) patch.early_bird_cutoff = payload.earlyBirdCutoff || null
   if ('compMode' in payload)       patch.comp_mode = payload.compMode
   if ('showTime' in payload)       patch.time_visible = payload.showTime
@@ -103,7 +159,7 @@ export async function listSpecies(): Promise<Species[]> {
   if (!client) return DEFAULT_SPECIES.map((n,i)=>({id:i+1, name:n}))
   const { data, error } = await client.from('species').select('id,name,is_measure').order('name')
   if (error || !data?.length) return DEFAULT_SPECIES.map((n,i)=>({id:i+1, name:n}))
-  return data as any
+  return (data as RawSpeciesRow[]).map(mapSpecies)
 }
 
 // ===================================================================================
@@ -116,7 +172,7 @@ export async function listCompetitors(): Promise<Competitor[]> {
     .select('id,full_name,category,boat,email,phone,paid_on,created_at')
     .order('created_at', {ascending:false})
   if (error) throw error
-  return data as any
+  return (data as RawCompetitorRow[]).map(mapCompetitor)
 }
 
 export async function addCompetitor(payload: Omit<Competitor,'id'|'created_at'>): Promise<Competitor> {
@@ -125,9 +181,13 @@ export async function addCompetitor(payload: Omit<Competitor,'id'|'created_at'>)
     const row: Competitor = { ...payload, id: uid(), created_at: new Date().toISOString() }
     list.push(row); saveLocal(STORE_KEYS.competitors, list); return row
   }
-  const { data, error } = await client.from('competitor').insert(payload as any).select().single()
+  const { data, error } = await client
+    .from('competitor')
+    .insert(payload)
+    .select('id,full_name,category,boat,email,phone,paid_on,created_at')
+    .single()
   if (error) throw error
-  return data as any
+  return mapCompetitor(data as RawCompetitorRow)
 }
 
 export async function deleteCompetitors(ids: (string|number)[]): Promise<void> {
@@ -153,18 +213,18 @@ export async function addFish(payload: {
   time_caught?:string|null
 }) {
   if (!client) {
-    const rows = loadLocal<any[]>(STORE_KEYS.fish, [])
-    const row = { id: uid(), created_at: new Date().toISOString(), ...payload }
+    const rows = loadLocal<LocalFishRow[]>(STORE_KEYS.fish, [])
+    const row: LocalFishRow = { id: uid(), created_at: new Date().toISOString(), ...payload }
     rows.push(row); saveLocal(STORE_KEYS.fish, rows); return row
   }
-  const { data, error } = await client.from('fish').insert(payload as any).select().single()
+  const { data, error } = await client.from('fish').insert(payload).select().single()
   if (error) throw error
   return data
 }
 
 export async function deleteFish(ids:(string|number)[]): Promise<void> {
   if (!client) {
-    const rows = loadLocal<any[]>(STORE_KEYS.fish, [])
+    const rows = loadLocal<LocalFishRow[]>(STORE_KEYS.fish, [])
     saveLocal(STORE_KEYS.fish, rows.filter(x=>!ids.includes(x.id)))
     return
   }
@@ -174,26 +234,29 @@ export async function deleteFish(ids:(string|number)[]): Promise<void> {
 
 export async function listFishJoined(): Promise<FishJoined[]> {
   if (!client) {
-    const fish = loadLocal<any[]>(STORE_KEYS.fish, [])
+    const fish = loadLocal<LocalFishRow[]>(STORE_KEYS.fish, [])
     const comps = loadLocal<Competitor[]>(STORE_KEYS.competitors, [])
     const species = await listSpecies()
     const sById = new Map(species.map(s=>[s.id, s]))
     const cById = new Map(comps.map(c=>[c.id, c]))
-    return fish.map(f => ({
-      id: f.id,
-      weight_kg: f.weight_kg,
-      length_cm: f.length_cm,
-      time_caught: f.time_caught,
-      created_at: f.created_at,
-      species: sById.get(f.species_id) || null,
-      competitor: cById.get(f.competitor_id) ? {
-        id: cById.get(f.competitor_id)!.id,
-        full_name: cById.get(f.competitor_id)!.full_name,
-        category: cById.get(f.competitor_id)!.category,
-        boat: cById.get(f.competitor_id)!.boat,
-        paid_on: cById.get(f.competitor_id)!.paid_on
-      } : null
-    })) as any
+    return fish.map(f => {
+      const competitor = cById.get(f.competitor_id)
+      return {
+        id: f.id,
+        weight_kg: f.weight_kg ?? null,
+        length_cm: f.length_cm ?? null,
+        time_caught: f.time_caught ?? null,
+        created_at: f.created_at ?? null,
+        species: sById.get(f.species_id) ?? null,
+        competitor: competitor ? {
+          id: competitor.id,
+          full_name: competitor.full_name,
+          category: competitor.category,
+          boat: competitor.boat ?? null,
+          paid_on: competitor.paid_on
+        } : null
+      } satisfies FishJoined
+    })
   }
 
   const { data, error } = await client.from('fish').select(`
@@ -202,7 +265,21 @@ export async function listFishJoined(): Promise<FishJoined[]> {
       species:species_id(id, name)
   `).order('created_at', { ascending: false })
   if (error) throw error
-  return data as any
+  return ((data as RawFishJoinedRow[] | null | undefined) ?? []).map(row => ({
+    id: row.id,
+    weight_kg: row.weight_kg ?? null,
+    length_cm: row.length_cm ?? null,
+    time_caught: row.time_caught ?? null,
+    created_at: row.created_at ?? null,
+    species: row.species ? mapSpecies(row.species) : null,
+    competitor: row.competitor ? {
+      id: row.competitor.id,
+      full_name: row.competitor.full_name,
+      category: row.competitor.category,
+      boat: row.competitor.boat ?? null,
+      paid_on: row.competitor.paid_on
+    } : null
+  }))
 }
 
 // ===================================================================================

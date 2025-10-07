@@ -1,4 +1,5 @@
 // src/services/sponsors.ts
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase } from '@/services/db'
 
 export type Sponsor = { id: string; name: string }
@@ -11,9 +12,17 @@ export type CompetitionSponsorInput = {
   blurb?: string | null
 }
 
+function requireClient(): SupabaseClient {
+  if (!supabase) {
+    throw new Error('Supabase client is not configured. Sponsor management requires VITE_SUPABASE_* env vars.')
+  }
+  return supabase
+}
+
 // Create a sponsor (master)
 export async function createSponsor(name: string) {
-  const { data, error } = await supabase
+  const client = requireClient()
+  const { data, error } = await client
     .from('sponsors')
     .insert({ name })
     .select()
@@ -24,14 +33,15 @@ export async function createSponsor(name: string) {
 
 // Default-group levels (fallback to all active if no default)
 export async function fetchDefaultGroupLevels(): Promise<SponsorLevel[]> {
-  const { data: group, error: gErr } = await supabase
+  const client = requireClient()
+  const { data: group, error: gErr } = await client
     .from('sponsor_group')
     .select('id')
     .eq('is_default', true)
     .maybeSingle()
   if (gErr) throw gErr
 
-  const query = supabase.from('sponsor_level')
+  const query = client.from('sponsor_level')
     .select('id,label,group_id,sort_order')
     .eq('active', true)
     .order('sort_order')
@@ -45,7 +55,8 @@ export async function fetchDefaultGroupLevels(): Promise<SponsorLevel[]> {
 
 // Link sponsor to competition
 export async function addSponsorToCompetition(input: CompetitionSponsorInput) {
-  const { error } = await supabase.from('competition_sponsor').insert({
+  const client = requireClient()
+  const { error } = await client.from('competition_sponsor').insert({
     competition_id: input.competition_id,
     sponsor_id: input.sponsor_id,
     level_id: input.level_id,
@@ -57,7 +68,8 @@ export async function addSponsorToCompetition(input: CompetitionSponsorInput) {
 
 // List configured sponsors for a competition
 export async function listCompetitionSponsors(competition_id: string) {
-  const { data, error } = await supabase
+  const client = requireClient()
+  const { data, error } = await client
     .from('vw_competition_sponsors') // or build the join inline if you didn’t add the view
     .select('*')
     .eq('competition_id', competition_id)

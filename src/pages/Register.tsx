@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { addCompetitor, deleteCompetitors, fetchSettings, listCompetitors } from '@/services/api'
-import type { Competitor } from '@/types'
+import type { Competitor, Settings } from '@/types'
 import { computeFee, formatNZ, todayISO } from '@/utils'
 
 export default function Register(){
-  const [settings, setSettings] = useState<any>(null)
+  const [settings, setSettings] = useState<Settings | null>(null)
   const [rows, setRows] = useState<Competitor[]>([])
-  const [selected, setSelected] = useState<Set<string|number>>(new Set())
+  const [selected, setSelected] = useState<Set<Competitor['id']>>(new Set())
 
   const [name, setName] = useState('')
   const [category, setCategory] = useState<'Adult'|'Junior'>('Adult')
@@ -24,16 +24,18 @@ export default function Register(){
   const fee = useMemo(()=> settings ? computeFee(settings, category, paidOn) : null, [settings, category, paidOn])
 
   async function save(keepBoat:boolean){
+    if(!settings){ alert('Settings not loaded yet'); return }
     if(!name.trim()){ alert('Full Name is required'); return }
     if(!paidOn){ alert('Payment Date is required'); return }
-    await addCompetitor({
+    const payload: Omit<Competitor,'id'|'created_at'> = {
       full_name: name.trim(),
-      category: category.toLowerCase() as any,
+      category: category === 'Adult' ? 'adult' : 'junior',
       paid_on: paidOn,
       email: email.trim() || null,
       phone: phone.trim() || null,
       boat: boat.trim() || null
-    } as any)
+    }
+    await addCompetitor(payload)
     setRows(await listCompetitors())
     setName(''); setEmail(''); setPhone(''); setNotes('')
     if(!keepBoat) setBoat('')
@@ -56,8 +58,8 @@ export default function Register(){
         <h2>Competition Registration</h2>
         <div className="row">
           <div className="col-6"><label>Full Name *</label><input value={name} onChange={e=>setName(e.target.value)} placeholder="First Last" required/></div>
-          <div className="col-3"><label>Category *</label>
-            <select value={category} onChange={e=>setCategory(e.target.value as any)}>
+            <div className="col-3"><label>Category *</label>
+              <select value={category} onChange={e=>setCategory(e.target.value as 'Adult'|'Junior')}>
               <option>Adult</option><option>Junior</option>
             </select>
           </div>
@@ -107,7 +109,7 @@ export default function Register(){
             <tbody>
               {filtered.map(r=>{
                 const dispCat = r.category==='adult' ? 'Adult' : 'Junior'
-                const feeRow = settings ? computeFee(settings, dispCat as any, r.paid_on) : null
+                const feeRow = settings ? computeFee(settings, dispCat, r.paid_on) : null
                 return (
                   <tr key={String(r.id)}>
                     <td><input type="checkbox" checked={selected.has(r.id)} onChange={(e)=>{

@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchSettings, listFishJoined, deleteFish, listSpecies } from '@/services/api'
 import { fmt, formatNZ } from '@/utils'
-import type { FishJoined, Species } from '@/types'
+import type { FishJoined, Species, Settings } from '@/types'
 
 export default function Results(){
-  const [settings, setSettings] = useState<any>(null)
+  const [settings, setSettings] = useState<Settings | null>(null)
   const [rows, setRows] = useState<FishJoined[]>([])
   const [species, setSpecies] = useState<Species[]>([])
 
@@ -22,12 +22,13 @@ export default function Results(){
                .filter(r => !ql || [r.competitor?.full_name, r.species?.name].join(' ').toLowerCase().includes(ql))
   }, [rows, q, sp])
 
-  const [selected, setSelected] = useState<Set<string|number>>(new Set())
+  const [selected, setSelected] = useState<Set<FishJoined['id']>>(new Set())
 
   function sortByMetric(){
+    const compMode = settings?.compMode ?? 'weight'
     const cmp = (a:FishJoined, b:FishJoined) => {
-      const va = settings.compMode==='measure' ? (a.length_cm||0) : (a.weight_kg||0)
-      const vb = settings.compMode==='measure' ? (b.length_cm||0) : (b.weight_kg||0)
+      const va = compMode==='measure' ? (a.length_cm||0) : (a.weight_kg||0)
+      const vb = compMode==='measure' ? (b.length_cm||0) : (b.weight_kg||0)
       return vb - va
     }
     setRows(r => [...r].sort(cmp))
