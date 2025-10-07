@@ -1,6 +1,6 @@
 // File: src/pages/Prizes.tsx
 import { useEffect, useMemo, useState } from 'react'
-import { fetchSettings, listSpecies } from '../services/api.js'
+import { fetchSettings, listSpecies } from '../services/api'
 import {
   listPrizes,
   createPrizeRow,
@@ -9,7 +9,7 @@ import {
   getNextRank,
   type PrizeRow,
   type Category,
-} from '../services/prizes.js'
+} from '../services/prizes'
 import { listCompetitionSponsors } from '@/services/sponsors'
 import { supabase } from '@/services/db'
 
