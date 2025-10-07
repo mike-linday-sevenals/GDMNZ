@@ -12,6 +12,7 @@ import {
 } from '../services/prizes'
 import { listCompetitionSponsors } from '@/services/sponsors'
 import { supabase } from '@/services/db'
+import type { Settings } from '@/types'
 
 const cssId = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-')
 
@@ -20,12 +21,13 @@ type PrizeMap = Record<number, Record<Category, PrizeRow[]>>
 type CompSponsor = { id: string; sponsor_id: string; sponsor_name: string; level_label?: string | null; display_order?: number | null }
 
 export default function Prizes() {
-  const [settings, setSettings] = useState<any>(null)
+  const [settings, setSettings] = useState<Settings | null>(null)
   const [species, setSpecies] = useState<Species[]>([])
   const [prizes, setPrizes] = useState<PrizeMap>({})
   const [competitionId, setCompetitionId] = useState<string>('')
   const [compSponsors, setCompSponsors] = useState<CompSponsor[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     ;(async () => {
@@ -45,6 +47,7 @@ export default function Prizes() {
       setLoading(false)
     })().catch(err => {
       console.error(err)
+      setError(err instanceof Error ? err.message : String(err))
       setLoading(false)
     })
   }, [])
@@ -177,6 +180,15 @@ export default function Prizes() {
     )
   }
 
+  if (error) {
+    return (
+      <section className="card">
+        <h2>Prize Setup</h2>
+        <p className="muted">{error}</p>
+      </section>
+    )
+  }
+
   return (
     <section className="card">
       <h2>
@@ -260,6 +272,7 @@ export default function Prizes() {
 
 // ---- helper: choose the running competition or latest by start date ----
 async function getCurrentCompetitionId(): Promise<string> {
+  if (!supabase) throw new Error('Supabase client not configured')
   const today = new Date().toISOString().slice(0, 10)
   let { data, error } = await supabase
     .from('competition')

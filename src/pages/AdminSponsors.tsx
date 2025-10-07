@@ -12,6 +12,7 @@ const BLURB_MAX = 240
 
 // Helper: get current competition (running today, else latest)
 async function getCurrentCompetitionId(): Promise<string> {
+  if (!supabase) throw new Error('Supabase client not configured')
   const today = new Date().toISOString().slice(0, 10)
   let { data, error } = await supabase
     .from('competition')
@@ -49,6 +50,7 @@ export default function AdminSponsors() {
   const [linked, setLinked] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const blurbRef = useRef<HTMLTextAreaElement | null>(null)
   const blurbCount = blurb.length
@@ -74,6 +76,9 @@ export default function AdminSponsors() {
         if (lvls.length) setLevelId(lvls[0].id)
         const rows = await listCompetitionSponsors(cid)
         setLinked(rows)
+      } catch (err) {
+        console.error(err)
+        setError(err instanceof Error ? err.message : String(err))
       } finally {
         setLoading(false)
       }
@@ -107,6 +112,15 @@ export default function AdminSponsors() {
       <section className="card">
         <h3>Sponsors (DB)</h3>
         <p className="muted">Loading…</p>
+      </section>
+    )
+  }
+
+  if (error) {
+    return (
+      <section className="card">
+        <h3>Sponsors (DB)</h3>
+        <p className="muted">{error}</p>
       </section>
     )
   }

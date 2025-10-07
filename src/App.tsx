@@ -7,14 +7,16 @@ import PrizeGiving from "./pages/PrizeGiving";
 import Admin from "./pages/Admin";
 import Data from "./pages/Data";
 
-const TABS = [
-  { to:"/", label:"Register", end:true },
-  { to:"/submit", label:"Submit Fish" },
-  { to:"/results", label:"Results" },
-  { to:"/prizes", label:"Prizes" },
-  { to:"/prizegiving", label:"Prize Giving" },
-  { to:"/admin", label:"Admin" },
-  { to:"/data", label:"Import/Export" }
+type Tab = { to: string; label: string; end?: boolean };
+
+const TABS: Tab[] = [
+  { to: "/", label: "Register", end: true },
+  { to: "/submit", label: "Submit Fish" },
+  { to: "/results", label: "Results" },
+  { to: "/prizes", label: "Prizes" },
+  { to: "/prizegiving", label: "Prize Giving" },
+  { to: "/admin", label: "Admin" },
+  { to: "/data", label: "Import/Export" }
 ];
 
 export default function App(){
@@ -31,8 +33,15 @@ export default function App(){
             </div>
           </div>
           <nav className="tabs">
-            {TABS.map(t => (
-              <NavLink key={t.to} to={t.to} end={t.end as any} className={({isActive})=> isActive ? 'active' : ''}>{t.label}</NavLink>
+            {TABS.map(tab => (
+              <NavLink
+                key={tab.to}
+                to={tab.to}
+                end={tab.end}
+                className={({ isActive }) => (isActive ? "active" : "")}
+              >
+                {tab.label}
+              </NavLink>
             ))}
           </nav>
         </div>

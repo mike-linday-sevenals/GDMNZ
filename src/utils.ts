@@ -1,3 +1,5 @@
+import type { Settings } from "@/types";
+
 export const DEFAULT_SPECIES = [
   'Snapper','Kingfish','Kahawai','Trevally','Gurnard','John Dory',
   'Crayfish / Cray (Diver)','Dive Snapper','Yellow Fin Tuna'
@@ -42,10 +44,16 @@ export function escapeHtml(s: string){
     .replace(/"/g, '&quot;')
 }
 
-export function computeFee(settings:any, category:'Adult'|'Junior', paidOn:string){
+export function computeFee(
+  settings: Pick<Settings, 'earlyBirdCutoff' | 'fees'>,
+  category: 'Adult' | 'Junior',
+  paidOn: string | null | undefined
+): number | null {
   if(!paidOn) return null
   const cutoff = new Date(settings.earlyBirdCutoff)
-  const isEarly = new Date(paidOn) <= cutoff
+  if(Number.isNaN(cutoff.getTime())) return null
+  const paidDate = new Date(paidOn)
+  if(Number.isNaN(paidDate.getTime())) return null
   const fees = settings.fees[category]
-  return isEarly ? fees.early : fees.standard
+  return paidDate <= cutoff ? fees.early : fees.standard
 }

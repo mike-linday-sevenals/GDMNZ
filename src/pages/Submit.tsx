@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { addFish, fetchSettings, listCompetitors, listSpecies, listFishJoined } from '@/services/api'
-import type { Competitor, Species } from '@/types'
+import { addFish, fetchSettings, listCompetitors, listSpecies } from '@/services/api'
+import type { Competitor, Species, Settings } from '@/types'
 import { todayISO } from '@/utils'
 
 export default function Submit(){
-  const [settings, setSettings] = useState<any>(null)
+  const [settings, setSettings] = useState<Settings | null>(null)
   const [species, setSpecies] = useState<Species[]>([])
   const [competitors, setCompetitors] = useState<Competitor[]>([])
 
@@ -24,15 +24,17 @@ export default function Submit(){
   const [competitorId, setCompetitorId] = useState<string>('')
   const [lengthCm, setLengthCm] = useState<string>('')
   const [weightKg, setWeightKg] = useState<string>('')
-  const [specId, setSpecId] = useState<number|''>('')
+  const [specId, setSpecId] = useState<number | ''>('')
   const [timeCaught, setTimeCaught] = useState<string>('')
   const [dateCaught, setDateCaught] = useState<string>(todayISO())
   const [keepAfter, setKeepAfter] = useState<boolean>(false)
 
   async function save(stay:boolean){
+    if(!settings){ alert('Settings not loaded yet'); return }
     if(!competitorId){ alert('Please select a registered competitor'); return }
     if(!specId){ alert('Please select a species'); return }
-    if(settings.compMode==='measure'){
+    const compMode = settings.compMode
+    if(compMode==='measure'){
       if(!lengthCm || Number(lengthCm)<=0) { alert('Length is required'); return }
     } else {
       if(!weightKg || Number(weightKg)<=0) { alert('Weight is required'); return }
@@ -43,11 +45,10 @@ export default function Submit(){
     await addFish({
       competitor_id: competitorId,
       species_id: Number(specId),
-      length_cm: settings.compMode==='measure' ? Number(lengthCm||0) : null,
-      weight_kg: settings.compMode==='weight' ? Number(weightKg||0) : null,
+      length_cm: compMode==='measure' ? Number(lengthCm||0) : null,
+      weight_kg: compMode==='weight' ? Number(weightKg||0) : null,
       time_caught: settings.showTime ? timeISO : null
     })
-    await listFishJoined()
     alert('Catch saved')
     if(stay){
       const keep = keepAfter ? competitorId : ''
@@ -93,7 +94,13 @@ export default function Submit(){
         )}
 
         <div className="col-3"><label>Species</label>
-          <select value={String(specId)} onChange={e=>setSpecId(Number(e.target.value))}>
+          <select
+            value={String(specId)}
+            onChange={e=>{
+              const next = e.target.value
+              setSpecId(next ? Number(next) : '')
+            }}
+          >
             <option value="">Select species…</option>
             {species.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>

@@ -1,9 +1,12 @@
-import { createClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { supabase } from './db'
 
-const sb = createClient(
-  import.meta.env.VITE_SUPABASE_URL as string,
-  import.meta.env.VITE_SUPABASE_ANON_KEY as string
-)
+function requireClient(): SupabaseClient {
+  if (!supabase) {
+    throw new Error('Supabase client is not configured. Provide VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.')
+  }
+  return supabase
+}
 
 export type Category = 'combined' | 'adult' | 'junior'
 
@@ -20,7 +23,8 @@ export type PrizeRow = {
 }
 
 export async function listPrizes(): Promise<PrizeRow[]> {
-  const { data, error } = await sb
+  const client = requireClient()
+  const { data, error } = await client
     .from('prize')
     .select('*')
     .order('species_id', { ascending: true })
@@ -33,7 +37,8 @@ export async function listPrizes(): Promise<PrizeRow[]> {
 export async function createPrizeRow(
   p: Omit<PrizeRow, 'id' | 'created_at'>
 ): Promise<PrizeRow> {
-  const { data, error } = await sb.from('prize').insert(p).select().single()
+  const client = requireClient()
+  const { data, error } = await client.from('prize').insert(p).select().single()
   if (error) throw error
   return data as PrizeRow
 }
@@ -42,13 +47,15 @@ export async function updatePrizeRow(
   id: string,
   patch: Partial<PrizeRow>
 ): Promise<PrizeRow> {
-  const { data, error } = await sb.from('prize').update(patch).eq('id', id).select().single()
+  const client = requireClient()
+  const { data, error } = await client.from('prize').update(patch).eq('id', id).select().single()
   if (error) throw error
   return data as PrizeRow
 }
 
 export async function deletePrizeRow(id: string): Promise<void> {
-  const { error } = await sb.from('prize').delete().eq('id', id)
+  const client = requireClient()
+  const { error } = await client.from('prize').delete().eq('id', id)
   if (error) throw error
 }
 
@@ -57,7 +64,8 @@ export async function getNextRank(
   species_id: number,
   for_category: Category
 ): Promise<number> {
-  const { data, error } = await sb
+  const client = requireClient()
+  const { data, error } = await client
     .from('prize')
     .select('rank')
     .eq('species_id', species_id)
