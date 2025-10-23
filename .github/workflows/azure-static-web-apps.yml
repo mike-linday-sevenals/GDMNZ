@@ -31,6 +31,17 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
+      # ⬇️ ensure SPA fallback is included in the deployed root
+      - name: Copy SWA config into build
+        run: |
+          if [ -f staticwebapp.config.json ]; then
+            cp staticwebapp.config.json build/staticwebapp.config.json
+          fi
+
+      # (optional) quick sanity that envs were present
+      - name: Check VITE envs are set
+        run: node -e "console.log('URL:',!!process.env.VITE_SUPABASE_URL,'KEY:',!!process.env.VITE_SUPABASE_ANON_KEY)"
+
       - name: Verify output exists
         run: |
           test -d build || (echo "::error::build/ not found" && exit 1)
