@@ -4,3 +4,6 @@ dist
 .env*
 .DS_Store
 .vscode
+src/**/*.js
+src/**/*.js.map
+vite.config.js
