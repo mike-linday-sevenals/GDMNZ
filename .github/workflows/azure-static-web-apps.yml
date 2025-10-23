@@ -2,8 +2,8 @@
 
 on:
   push:
-    branches: [ main ]
-  workflow_dispatch:
+    branches: [ main ]      # auto-deploy when main changes
+  workflow_dispatch:        # allow manual run for any branch
 
 concurrency:
   group: swa-prod
@@ -23,17 +23,18 @@ jobs:
       - name: Install deps
         run: npm ci
 
+      # ✅ Bake Vite env vars into the bundle (Supabase URL/KEY)
       - name: Build (Vite -> build/)
         run: npm run build
+        env:
+          VITE_DATA_SOURCE: supabase
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
-      - name: Copy SWA config into build (optional)
+      - name: Verify output exists
         run: |
-          if [ -f staticwebapp.config.json ]; then
-            cp staticwebapp.config.json build/staticwebapp.config.json
-          fi
-
-      - name: Verify output
-        run: ls -la build
+          test -d build || (echo "::error::build/ not found" && exit 1)
+          ls -la build
 
       - name: Deploy to Azure Static Web Apps (Production)
         uses: Azure/static-web-apps-deploy@v1
