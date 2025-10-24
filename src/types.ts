@@ -1,13 +1,14 @@
-export type Category = 'Adult' | 'Junior'
+﻿export type Category = 'Adult' | 'Junior'
 
 export interface Settings {
-  earlyBirdCutoff: string
-  fees: { Adult: { early:number; standard:number }, Junior: { early:number; standard:number } }
-  decimals: number
-  showTime: boolean
-  requireTime: boolean
-  compMode: 'weight' | 'measure'
-  prizeMode: 'combined' | 'split'
+    earlyBirdCutoff?: string
+    fees: { Adult: { early: number, standard: number }, Junior: { early: number, standard: number } }
+    decimals: number
+    compMode: 'weight' | 'measure'
+    showTime: boolean
+    requireTime: boolean
+    prizeMode: 'combined' | 'split'
+    activeSpeciesIds?: number[]   // ← NEW
 }
 
 export interface Species { id:number; name:string; is_measure?: boolean }
