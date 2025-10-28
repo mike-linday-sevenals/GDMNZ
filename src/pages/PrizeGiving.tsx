@@ -1,4 +1,4 @@
-// PrizeGiving.ts
+// src/pages/PrizeGiving.ts
 import { useEffect, useState, useMemo } from 'react'
 import { fetchSettings, listFishJoined, listSpecies } from '@/services/api'
 import { fmt } from '@/utils'
@@ -6,7 +6,10 @@ import { listPrizes } from '@/services/prizes'
 
 type Category = 'combined' | 'adult' | 'junior'
 type PrizeCell = { label: string; sponsor: string | null }
-type PrizeMap = Record<string, { combined: Record<number, PrizeCell>; adult: Record<number, PrizeCell>; junior: Record<number, PrizeCell> }>
+type PrizeMap = Record<
+    string,
+    { combined: Record<number, PrizeCell>; adult: Record<number, PrizeCell>; junior: Record<number, PrizeCell> }
+>
 
 export default function PrizeGiving() {
     const [settings, setSettings] = useState<any>(null)
@@ -19,18 +22,19 @@ export default function PrizeGiving() {
             const [st, fish, spRows, pRows] = await Promise.all([
                 fetchSettings(),
                 listFishJoined(),
-                listSpecies(),       // MUST return id + name
-                listPrizes(),        // from '@/services/prizes'
+                listSpecies(), // MUST return id + name
+                listPrizes(),  // from '@/services/prizes'
             ])
             setSettings(st)
             setEntries(fish)
+
             const sp = spRows.map((s: any) => ({ id: s.id, name: s.name }))
             setSpecies(sp)
 
             // Build: speciesName -> category -> { rank -> {label,sponsor} }
             const byId = new Map<number, string>(spRows.map((s: any) => [s.id, s.name]))
             const m: PrizeMap = {}
-            for (const s of spRows) { m[s.name] = { combined: {}, adult: {}, junior: {} } }
+            for (const s of spRows) m[s.name] = { combined: {}, adult: {}, junior: {} }
             for (const p of pRows) {
                 const sName = byId.get(p.species_id)
                 if (!sName) continue
@@ -53,7 +57,8 @@ export default function PrizeGiving() {
 
     function parseWeighIn(ts?: string | null) {
         if (!ts) return Number.POSITIVE_INFINITY
-        const n = Date.parse(String(ts)); return Number.isNaN(n) ? Number.POSITIVE_INFINITY : n
+        const n = Date.parse(String(ts))
+        return Number.isNaN(n) ? Number.POSITIVE_INFINITY : n
     }
 
     // Sort by value desc, tie-break on earliest created_at (first weighed/registered wins)
@@ -77,7 +82,9 @@ export default function PrizeGiving() {
             <h2>Prize Giving</h2>
             <p className="sub">
                 Mode: <strong>{mode === 'combined' ? 'Combined' : 'Split (Adult & Junior)'}</strong> — shown in reverse order for announcing (3rd → 1st).
+                &nbsp;Entry day/time reflect <strong>submission</strong> (date of entry).
             </p>
+
             {!!activeSet && speciesToShow.length !== species.length && (
                 <p className="sub">Showing <strong>active species only</strong>. Toggle species in <em>Settings → Species visibility</em>.</p>
             )}
@@ -165,6 +172,8 @@ function Table({
                     <th>Competitor</th>
                     {showCat && <th>Category</th>}
                     <th>{compMode === 'measure' ? 'Length (cm)' : 'Weight (kg)'}</th>
+                    <th>Entry date</th>
+                    <th>Entry time</th>
                     <th>Prize</th>
                     <th>Sponsor</th>
                 </tr>
@@ -172,22 +181,49 @@ function Table({
             <tbody>
                 {places.map(place => {
                     const c = ranked[place - 1]
-                    if (!c) return <tr key={place}><td>{place}</td><td colSpan={showCat ? 4 : 3} className="muted">— no qualified entry —</td></tr>
+
+                    // No qualified entry for this place
+                    if (!c) {
+                        const totalAfterPlace =
+                            1 /* Competitor */ +
+                            (showCat ? 1 : 0) +
+                            1 /* Metric */ +
+                            1 /* Entry date */ +
+                            1 /* Entry time */ +
+                            1 /* Prize */ +
+                            1 /* Sponsor */
+                        return (
+                            <tr key={place}>
+                                <td>{place}</td>
+                                <td colSpan={totalAfterPlace} className="muted">— no qualified entry —</td>
+                            </tr>
+                        )
+                    }
 
                     const prize = pz[place] || { label: '', sponsor: '' }
-                    const catBadge = <span className={`cat-badge cat-${c.competitor?.category === 'adult' ? 'Adult' : 'Junior'}`}>{c.competitor?.category === 'adult' ? 'Adult' : 'Junior'}</span>
-                    const metric = compMode === 'measure'
-                        ? (c.length_cm != null ? fmt(c.length_cm, 1) : '')
-                        : (c.weight_kg != null ? fmt(c.weight_kg, 2) : '')
+                    const catLabel = c.competitor?.category === 'adult' ? 'Adult' : 'Junior'
+                    const catBadge = <span className={`cat-badge cat-${catLabel}`}>{catLabel}</span>
 
-                    const juniorBeatingAdult = (c.competitor?.category === 'junior' && showCat)
+                    const metric =
+                        compMode === 'measure'
+                            ? (c.length_cm != null ? fmt(c.length_cm, 1) : '')
+                            : (c.weight_kg != null ? fmt(c.weight_kg, 2) : '')
+
+                    // ENTRY (submission) date/time
+                    const dt = c.created_at ? new Date(c.created_at) : null
+                    const valid = dt && !Number.isNaN(+dt)
+                    const entryDate = valid ? dt!.toLocaleDateString('en-NZ', { day: '2-digit', month: 'short' }) : ''
+                    const entryTime = valid ? dt!.toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit' }) : ''
 
                     return (
                         <tr key={place}>
-                            <td>{place}{juniorBeatingAdult && ' '} {juniorBeatingAdult && <span className="badge">Junior!</span>}</td>
+                            {/* Place: number only (no Junior badge here) */}
+                            <td>{place}</td>
                             <td>{c.competitor?.full_name || ''}</td>
                             {showCat && <td>{catBadge}</td>}
                             <td>{metric}</td>
+                            <td>{entryDate}</td>
+                            <td>{entryTime}</td>
                             <td>{prize.label}</td>
                             <td className="sponsor">{prize.sponsor || ''}</td>
                         </tr>
@@ -197,3 +233,4 @@ function Table({
         </table>
     )
 }
+

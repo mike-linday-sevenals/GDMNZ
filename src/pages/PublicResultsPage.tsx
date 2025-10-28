@@ -11,7 +11,7 @@ type Settings = {
 
 type Entry = {
     id: string | number;
-    created_at?: string | null;
+    created_at?: string | null;  // submission time (entry)
     weight_kg?: number | null;
     length_cm?: number | null;
     species?: { id: number; name: string } | null;
@@ -42,6 +42,11 @@ export default function PublicResultsPage() {
         })();
     }, []);
 
+    const compMode: 'weight' | 'measure' = settings?.compMode || 'weight';
+    const prizeMode: 'combined' | 'split' = settings?.prizeMode || 'split';
+    const isCombined = prizeMode === 'combined';
+
+    // -------- helpers --------
     function dateKeyLocal(ts?: string | null): string {
         if (!ts) return '';
         const d = new Date(ts);
@@ -52,13 +57,33 @@ export default function PublicResultsPage() {
         return `${y}-${m}-${dd}`;
     }
 
+    function prettyNZDate(ymd: string) {
+        const [y, m, d] = ymd.split('-').map(Number);
+        const dt = new Date(y, m - 1, d);
+        return dt.toLocaleDateString('en-NZ', { day: '2-digit', month: 'short' });
+    }
+
+    function prettyNZDateFromTS(ts?: string | null) {
+        if (!ts) return '';
+        const d = new Date(ts);
+        if (Number.isNaN(+d)) return '';
+        return d.toLocaleDateString('en-NZ', { day: '2-digit', month: 'short' });
+    }
+
+    function prettyNZTime(ts?: string | null) {
+        if (!ts) return '';
+        const d = new Date(ts);
+        if (Number.isNaN(+d)) return '';
+        return d.toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit' });
+    }
+
     function parseWeighIn(ts?: string | null) {
         if (!ts) return Number.POSITIVE_INFINITY;
         const n = Date.parse(String(ts));
         return Number.isNaN(n) ? Number.POSITIVE_INFINITY : n;
     }
 
-    /** Rank descending by metric, tie-break earliest weigh-in */
+    /** Rank descending by metric, tie-break earliest submission (created_at) */
     function rank(items: Entry[], mode: 'weight' | 'measure') {
         return items.slice().sort((a, b) => {
             const va = mode === 'measure' ? (a.length_cm ?? 0) : (a.weight_kg ?? 0);
@@ -79,8 +104,6 @@ export default function PublicResultsPage() {
         return Array.from(keys).sort();
     }, [entries]);
 
-    const compMode: 'weight' | 'measure' = settings?.compMode || 'weight';
-
     // Respect active species from settings
     const activeSet = useMemo(() => {
         if (!settings) return null;
@@ -98,7 +121,7 @@ export default function PublicResultsPage() {
                 if (!e.species || e.species.id !== selectedSpeciesId) return false;
             }
             if (selectedDay !== 'all') {
-                if (dateKeyLocal(e.created_at) !== selectedDay) return false;
+                if (dateKeyLocal(e.created_at) !== selectedDay) return false; // day of ENTRY
             }
             return true;
         });
@@ -137,12 +160,14 @@ export default function PublicResultsPage() {
 
             <section className="card">
                 <h2>Results</h2>
-                <p className="sub">Full leaderboard (top to bottom), tie-break on earliest weigh-in.</p>
+                <p className="sub">
+                    Full leaderboard (top to bottom), tie-break on <strong>earliest submission</strong>. Entry day is based on submission date.
+                </p>
 
                 {/* Filters */}
                 <div className="grid two" style={{ alignItems: 'end', marginBottom: 8 }}>
                     <div className="grid" style={{ gap: 8 }}>
-                        {/* Day filter */}
+                        {/* Day filter (by ENTRY date) */}
                         <div className="flex">
                             <span className="pill">Day</span>
                             <button
@@ -186,32 +211,70 @@ export default function PublicResultsPage() {
                         </div>
                     </div>
 
-                    {/* Category toggles */}
-                    <div className="flex" style={{ justifyContent: 'flex-end' }}>
-                        <span className="pill">Category</span>
-                        <button
-                            className={`pill ${showAdult ? 'active' : ''}`}
-                            onClick={() => setShowAdult((v) => !v)}
-                            title="Toggle Adult"
-                        >
-                            Adult
-                        </button>
-                        <button
-                            className={`pill ${showJunior ? 'active' : ''}`}
-                            onClick={() => setShowJunior((v) => !v)}
-                            title="Toggle Junior"
-                        >
-                            Junior
-                        </button>
-                    </div>
+                    {/* Category toggles — only in SPLIT mode */}
+                    {!isCombined && (
+                        <div className="flex" style={{ justifyContent: 'flex-end' }}>
+                            <span className="pill">Category</span>
+                            <button
+                                className={`pill ${showAdult ? 'active' : ''}`}
+                                onClick={() => setShowAdult((v) => !v)}
+                                title="Toggle Adult"
+                            >
+                                Adult
+                            </button>
+                            <button
+                                className={`pill ${showJunior ? 'active' : ''}`}
+                                onClick={() => setShowJunior((v) => !v)}
+                                title="Toggle Junior"
+                            >
+                                Junior
+                            </button>
+                        </div>
+                    )}
                 </div>
 
-                {/* Species blocks (ALL results shown) */}
+                {/* Species blocks */}
                 {speciesToRender.map((sp) => {
                     const bySpecies = filtered.filter((e) => e.species?.id === sp.id);
-                    const adultRanked = rank(bySpecies.filter((e) => e.competitor?.category === 'adult'), compMode);
-                    const juniorRanked = rank(bySpecies.filter((e) => e.competitor?.category === 'junior'), compMode);
-                    const hasAny = (showAdult && adultRanked.length) || (showJunior && juniorRanked.length);
+
+                    if (isCombined) {
+                        // COMBINED MODE: single overall table + Category at row level + Entry date
+                        const combinedRanked = rank(bySpecies, compMode);
+                        const hasAny = combinedRanked.length > 0;
+
+                        return (
+                            <section className="card" key={sp.id}>
+                                <h3>{sp.name}</h3>
+                                {!hasAny ? (
+                                    <p className="muted">No qualifying entries yet.</p>
+                                ) : (
+                                    <div>
+                                        <h4 style={{ marginTop: 0 }}>
+                                            Overall <span className="badge">Total {combinedRanked.length}</span>
+                                        </h4>
+                                        <ResultsTable
+                                            rows={combinedRanked}
+                                            compMode={compMode}
+                                            showCategory
+                                        />
+                                    </div>
+                                )}
+                            </section>
+                        );
+                    }
+
+                    // SPLIT MODE: adult + junior columns (respect toggles)
+                    const adultRanked = rank(
+                        bySpecies.filter((e) => e.competitor?.category === 'adult'),
+                        compMode
+                    );
+                    const juniorRanked = rank(
+                        bySpecies.filter((e) => e.competitor?.category === 'junior'),
+                        compMode
+                    );
+                    const hasAny =
+                        (showAdult && adultRanked.length > 0) ||
+                        (showJunior && juniorRanked.length > 0);
 
                     return (
                         <section className="card" key={sp.id}>
@@ -246,15 +309,27 @@ export default function PublicResultsPage() {
     );
 }
 
-function ResultsTable({ rows, compMode }: { rows: any[]; compMode: 'weight' | 'measure' }) {
+function ResultsTable({
+    rows,
+    compMode,
+    showCategory = false,
+}: {
+    rows: Entry[];
+    compMode: 'weight' | 'measure';
+    showCategory?: boolean;
+}) {
     return (
         <table>
             <thead>
                 <tr>
                     <th style={{ width: 56 }}>Rank</th>
                     <th>Competitor</th>
-                    <th style={{ width: 140 }}>{compMode === 'measure' ? 'Length (cm)' : 'Weight (kg)'}</th>
-                    <th style={{ width: 140 }}>Weigh-in</th>
+                    {showCategory && <th style={{ width: 120 }}>Category</th>}
+                    <th style={{ width: 140 }}>
+                        {compMode === 'measure' ? 'Length (cm)' : 'Weight (kg)'}
+                    </th>
+                    <th style={{ width: 120 }}>Entry date</th>
+                    <th style={{ width: 120 }}>Entry time</th>
                 </tr>
             </thead>
             <tbody>
@@ -267,29 +342,32 @@ function ResultsTable({ rows, compMode }: { rows: any[]; compMode: 'weight' | 'm
                             : e.weight_kg != null
                                 ? fmt(e.weight_kg, 2)
                                 : '';
+
+                    // format ENTRY (submission) date/time inline
+                    const dt = e.created_at ? new Date(e.created_at) : null;
+                    const valid = dt && !Number.isNaN(+dt);
+                    const entryDate = valid ? dt!.toLocaleDateString('en-NZ', { day: '2-digit', month: 'short' }) : '';
+                    const entryTime = valid ? dt!.toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit' }) : '';
+
+                    const catLabel = e.competitor?.category === 'adult' ? 'Adult' : 'Junior';
+
                     return (
                         <tr key={e.id ?? idx}>
                             <td>{idx + 1}</td>
                             <td>{e.competitor?.full_name || ''}</td>
+                            {showCategory && (
+                                <td>
+                                    <span className={`cat-badge cat-${catLabel}`}>{catLabel}</span>
+                                </td>
+                            )}
                             <td>{metric}</td>
-                            <td>{prettyNZTime(e.created_at)}</td>
+                            <td>{entryDate}</td>
+                            <td>{entryTime}</td>
                         </tr>
                     );
                 })}
             </tbody>
+
         </table>
     );
-}
-
-function prettyNZDate(ymd: string) {
-    const [y, m, d] = ymd.split('-').map(Number);
-    const dt = new Date(y, m - 1, d);
-    return dt.toLocaleDateString('en-NZ', { day: '2-digit', month: 'short' });
-}
-
-function prettyNZTime(ts?: string | null) {
-    if (!ts) return '';
-    const d = new Date(ts);
-    if (Number.isNaN(+d)) return '';
-    return d.toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit' });
 }
