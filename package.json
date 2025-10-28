@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview --port 3001"
+    "preview": "vite preview --port 3001",
+    "postbuild": "node scripts/generate-sitemap.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.76.1",
@@ -20,6 +21,7 @@
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^4.7.0",
     "eslint": "^9.38.0",
+    "sitemap": "^8.0.1",
     "typescript": "^5.9.3",
     "vite": "^7.1.11"
   }
