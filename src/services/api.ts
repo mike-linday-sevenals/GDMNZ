@@ -1,3 +1,4 @@
+// src/services/api.ts
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { DEFAULT_SETTINGS, DEFAULT_SPECIES, STORE_KEYS } from '@/utils'
 import type { Settings, Species, Competitor, FishJoined } from '@/types'
@@ -133,15 +134,8 @@ export async function updateSettings(payload: Partial<{
         .from('settings')
         .update(patch)
         .eq('id', rowId)
-        .select('id, active_species_ids')  // <- force returning row for sanity
-
     if (error) throw error
-    // Supabase can return [] when RLS blocks updates. Catch that and surface it.
-    if (!data || (Array.isArray(data) && data.length === 0)) {
-        throw new Error('Settings update affected 0 rows. Check RLS policies on table "settings".')
-    }
 }
-
 
 /* ===================================================================================
    SPECIES
@@ -175,6 +169,45 @@ export async function addCompetitor(payload: Omit<Competitor, 'id' | 'created_at
         return row
     }
     const { data, error } = await client.from('competitor').insert(payload as any).select().single()
+    if (error) throw error
+    return data as any
+}
+
+// ✨ NEW: update an existing competitor (inline edit support)
+type CompetitorPatch = Partial<Pick<
+    Competitor,
+    'full_name' | 'category' | 'boat' | 'email' | 'phone' | 'paid_on'
+>>
+
+export async function updateCompetitor(
+    id: string | number,
+    patch: CompetitorPatch
+): Promise<Competitor> {
+    // normalise: trim strings; convert empty strings -> null for optional fields
+    const norm: any = {}
+    if ('full_name' in patch && patch.full_name != null) norm.full_name = String(patch.full_name).trim()
+    if ('category' in patch && patch.category != null) norm.category = patch.category // 'adult' | 'junior'
+    if ('boat' in patch) norm.boat = patch.boat != null && String(patch.boat).trim() !== '' ? String(patch.boat).trim() : null
+    if ('email' in patch) norm.email = patch.email != null && String(patch.email).trim() !== '' ? String(patch.email).trim() : null
+    if ('phone' in patch) norm.phone = patch.phone != null && String(patch.phone).trim() !== '' ? String(patch.phone).trim() : null
+    if ('paid_on' in patch && patch.paid_on != null) norm.paid_on = patch.paid_on
+
+    if (!client) {
+        const list = loadLocal<Competitor[]>(STORE_KEYS.competitors, [])
+        const i = list.findIndex((x) => String(x.id) === String(id))
+        if (i === -1) throw new Error('Competitor not found (local)')
+        const updated = { ...list[i], ...norm } as Competitor
+        list[i] = updated
+        saveLocal(STORE_KEYS.competitors, list)
+        return updated
+    }
+
+    const { data, error } = await client
+        .from('competitor')
+        .update(norm)
+        .eq('id', id)
+        .select('id,full_name,category,boat,email,phone,paid_on,created_at')
+        .single()
     if (error) throw error
     return data as any
 }
@@ -331,7 +364,7 @@ export async function createSponsor(name: string): Promise<Sponsor> {
     const { error: linkErr } = await client
         .from('competition_sponsor')
         .insert({ competition_id, sponsor_id: sponsor.id })
-    if (linkErr && linkErr.code !== '23505') {
+    if (linkErr && (linkErr as any).code !== '23505') {
         // ignore unique dup if you added a unique index
         throw linkErr
     }
