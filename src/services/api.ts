@@ -1014,6 +1014,109 @@ export async function listFishJoinedForCompetition(
         return [];
     }
 }
+// ============================================================================
+// SPONSORS
+// ============================================================================
+
+export type Sponsor = {
+    id: string;
+    name: string;
+    logo_url?: string | null;
+    website_url?: string | null;
+    sponsor_group_id?: string | null;
+    sponsor_level_id?: string | null;
+    created_at?: string;
+};
+
+export async function listSponsors(): Promise<Sponsor[]> {
+    if (!client) return [];
+
+    const { data, error } = await client
+        .from("sponsors")
+        .select(`
+            id,
+            name,
+            logo_url,
+            website_url,
+            sponsor_group_id,
+            sponsor_level_id,
+            created_at
+        `)
+        .order("name");
+
+    if (error) throw error;
+    return data || [];
+}
+
+export async function createSponsor(payload: {
+    name: string;
+    logo_url?: string | null;
+    website_url?: string | null;
+    sponsor_group_id?: string | null;
+    sponsor_level_id?: string | null;
+}): Promise<Sponsor> {
+    if (!client) throw new Error("Supabase not configured");
+
+    const { data, error } = await client
+        .from("sponsors")
+        .insert({
+            name: payload.name.trim(),
+            logo_url: payload.logo_url ?? null,
+            website_url: payload.website_url ?? null,
+            sponsor_group_id: payload.sponsor_group_id ?? null,
+            sponsor_level_id: payload.sponsor_level_id ?? null
+        })
+        .select()
+        .single();
+
+    if (error) throw error;
+    return data;
+}
+
+export async function updateSponsor(
+    id: string,
+    patch: {
+        name?: string;
+        logo_url?: string | null;
+        website_url?: string | null;
+        sponsor_group_id?: string | null;
+        sponsor_level_id?: string | null;
+    }
+): Promise<Sponsor> {
+    if (!client) throw new Error("Supabase not configured");
+
+    const update: any = {};
+
+    if (patch.name !== undefined) update.name = patch.name.trim();
+    if (patch.logo_url !== undefined) update.logo_url = patch.logo_url;
+    if (patch.website_url !== undefined) update.website_url = patch.website_url;
+    if (patch.sponsor_group_id !== undefined)
+        update.sponsor_group_id = patch.sponsor_group_id;
+    if (patch.sponsor_level_id !== undefined)
+        update.sponsor_level_id = patch.sponsor_level_id;
+
+    const { data, error } = await client
+        .from("sponsors")
+        .update(update)
+        .eq("id", id)
+        .select()
+        .single();
+
+    if (error) throw error;
+    return data;
+}
+
+export async function deleteSponsor(id: string): Promise<void> {
+    if (!client) throw new Error("Supabase not configured");
+
+    const { error } = await client
+        .from("sponsors")
+        .delete()
+        .eq("id", id);
+
+    if (error) throw error;
+}
+
 
 
 
