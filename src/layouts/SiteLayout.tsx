@@ -1,39 +1,91 @@
-// src/layouts/SiteLayout.tsx
-import { Outlet, NavLink } from 'react-router-dom'
-import logo from '@/images/GDMNZ_logo.png' // <- your logo in src/images
+ï»¿// src/layouts/SiteLayout.tsx
+
+import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { listCompetitions } from "@/services/api";
+import logo from "@/images/GDMNZ_logo.png";
 
 export default function SiteLayout() {
+    const navigate = useNavigate();
+    const location = useLocation();
+
+    const [competitions, setCompetitions] = useState<any[]>([]);
+    const [selectedComp, setSelectedComp] = useState<string>("");
+
+    // Load competitions once
+    useEffect(() => {
+        (async () => {
+            try {
+                const comps = await listCompetitions();
+                setCompetitions(comps || []);
+            } catch (err) {
+                console.error("Failed to load competitions", err);
+            }
+        })();
+    }, []);
+
+    // Sync dropdown with ?competition=
+    useEffect(() => {
+        const params = new URLSearchParams(location.search);
+        const id = params.get("competition") || "";
+        setSelectedComp(id);
+    }, [location.search]);
+
+    // Handle dropdown selection
+    function handleSelect(id: string) {
+        setSelectedComp(id);
+        if (id) navigate(`/results?competition=${id}`);
+        else navigate("/results");   // <-- clears the results screen
+    }
+
     return (
         <>
             <header className="header">
                 <div
                     className="wrap"
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}
+                    style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 16,
+                    }}
                 >
-                    {/* Brand: logo only (clickable to home) */}
-                    <a href="/" className="brand" style={{ display: 'flex', alignItems: 'center' }}>
+                    {/* Logo */}
+                    <Link
+                        to="/"
+                        className="brand"
+                        style={{ display: "flex", alignItems: "center" }}
+                    >
                         <img
                             src={logo}
                             alt="Game Day Manager NZ"
-                            // Inline styles override the global `.brand img { height:40px }`
                             style={{
-                                height: 64,           // bigger logo
-                                width: 'auto',
+                                height: 64,
+                                width: "auto",
                                 borderRadius: 10,
-                                border: '1px solid var(--border)',
-                                background: '#fff',
-                                padding: 6,           // small inset so the border doesn’t touch the art
+                                border: "1px solid var(--border)",
+                                background: "#fff",
+                                padding: 6,
                             }}
                         />
-                        {/* keep an accessible label but no visible text */}
                         <span className="sr-only">Game Day Manager NZ</span>
-                    </a>
+                    </Link>
 
-                    {/* Single button */}
-                    <nav className="tabs" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <NavLink to="/results" className={({ isActive }) => (isActive ? 'active' : '')}>
-                            Results for WOSC &amp; 100% HOME WHANGAMATA
-                        </NavLink>
+                    {/* Competition Selector */}
+                    <nav
+                        className="tabs"
+                        style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                        }}
+                    >
+                        <button
+                            className="btn"
+                            onClick={() => navigate("/results")}
+                        >
+                            View Results
+                        </button>
                     </nav>
                 </div>
             </header>
@@ -44,5 +96,5 @@ export default function SiteLayout() {
                 </div>
             </main>
         </>
-    )
+    );
 }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { fetchSettings, updateSettings, listSpecies } from '@/services/api'
 import { STORE_KEYS } from '@/utils'
 import AdminSponsors from './AdminSponsors'
@@ -11,7 +12,7 @@ type Settings = {
     showTime: boolean
     requireTime: boolean
     prizeMode: 'combined' | 'split'
-    activeSpeciesIds?: number[]           // ← important
+    activeSpeciesIds?: number[]
 }
 
 type Species = { id: number; name: string }
@@ -23,9 +24,8 @@ function loadLocal<T>(k: string, f: T): T {
 }
 function saveLocal<T>(k: string, v: T) { localStorage.setItem(k, JSON.stringify(v)) }
 
-// Money helpers (kept from your original)
+// Money helpers
 const nzMoney = new Intl.NumberFormat('en-NZ', { style: 'currency', currency: 'NZD', minimumFractionDigits: 2 })
-const fmt = (n: number) => isFinite(n) ? nzMoney.format(n) : ''
 
 export default function Admin() {
     const [settings, setSettings] = useState<Settings | null>(null)
@@ -33,23 +33,26 @@ export default function Admin() {
     const [branding, setBranding] = useState<any>(loadLocal(STORE_KEYS.branding, { logoDataUrl: null }))
 
     const [species, setSpecies] = useState<Species[]>([])
-    const [activeSetLocal, setActiveSetLocal] = useState<Set<number>>(new Set())  // UI copy
+    const [activeSetLocal, setActiveSetLocal] = useState<Set<number>>(new Set())
 
     useEffect(() => {
         (async () => {
             const [st, sp] = await Promise.all([fetchSettings(), listSpecies()])
             setSettings(st)
             setSpecies(sp)
-            // default: if no value saved, assume all species active
+
             const fromSettings = (Array.isArray(st.activeSpeciesIds) && st.activeSpeciesIds.length)
                 ? new Set<number>(st.activeSpeciesIds)
                 : new Set<number>(sp.map(x => x.id))
+
             setActiveSetLocal(fromSettings)
         })()
     }, [])
 
-    // convenience: array version for saving
-    const activeIdsArray = useMemo(() => Array.from(activeSetLocal.values()).sort((a, b) => a - b), [activeSetLocal])
+    const activeIdsArray = useMemo(
+        () => Array.from(activeSetLocal.values()).sort((a, b) => a - b),
+        [activeSetLocal]
+    )
 
     async function onSaveSettings() {
         if (!settings) return
@@ -61,12 +64,11 @@ export default function Admin() {
                 showTime: settings.showTime,
                 requireTime: settings.requireTime,
                 prizeMode: settings.prizeMode,
-                activeSpeciesIds: activeIdsArray,              // ← persist visibility
+                activeSpeciesIds: activeIdsArray,
             })
-            // reflect locally so navigation back shows correct ticks
             setSettings(s => s ? { ...s, activeSpeciesIds: activeIdsArray } : s)
             alert('Settings saved.')
-        } catch (err: any) {
+        } catch (err) {
             console.error(err)
             alert('Failed to save settings.')
         } finally {
@@ -81,6 +83,7 @@ export default function Admin() {
             const b = { ...branding, logoDataUrl: ev.target?.result }
             setBranding(b)
             saveLocal(STORE_KEYS.branding, b)
+
             const img = document.querySelector('header .brand img') as HTMLImageElement | null
             if (img) img.src = String(ev.target?.result || '')
         }
@@ -94,7 +97,6 @@ export default function Admin() {
         </section>
     )
 
-    // Reusable money input with $ adornment + parse/format
     function MoneyInput({
         value,
         onChange,
@@ -103,7 +105,9 @@ export default function Admin() {
         onChange: (next: number) => void
     }) {
         const [text, setText] = useState<string>(Number.isFinite(value) ? value.toFixed(2) : '')
-        useEffect(() => { setText(Number.isFinite(value) ? value.toFixed(2) : '') }, [value])
+        useEffect(() => {
+            setText(Number.isFinite(value) ? value.toFixed(2) : '')
+        }, [value])
         return (
             <div className="currency">
                 <span>$</span>
@@ -113,7 +117,9 @@ export default function Admin() {
                     onChange={(e) => {
                         const raw = e.target.value.replace(/[^\d.]/g, '')
                         const parts = raw.split('.')
-                        const cleaned = parts.length > 2 ? parts[0] + '.' + parts.slice(1).join('') : raw
+                        const cleaned = parts.length > 2
+                            ? parts[0] + '.' + parts.slice(1).join('')
+                            : raw
                         setText(cleaned)
                         const n = Number(cleaned)
                         if (Number.isFinite(n)) onChange(n)
@@ -127,14 +133,14 @@ export default function Admin() {
         )
     }
 
-    // ----- species visibility controls -----
     function toggleAll(on: boolean) {
         setActiveSetLocal(new Set(on ? species.map(s => s.id) : []))
     }
     function toggleOne(id: number, on: boolean) {
         setActiveSetLocal(prev => {
             const next = new Set(prev)
-            if (on) next.add(id); else next.delete(id)
+            if (on) next.add(id)
+            else next.delete(id)
             return next
         })
     }
@@ -143,7 +149,17 @@ export default function Admin() {
         <section className="card admin-card">
             <h2>Admin</h2>
 
+            {/* UPDATED BUTTON USING <Link> NOT <a> */}
+            <div style={{ marginBottom: 20 }}>
+                <Link to="/admin/competitions">
+                    <button className="btn primary">
+                        Manage Competitions
+                    </button>
+                </Link>
+            </div>
+
             <div className="grid two admin-layout">
+
                 {/* SETTINGS */}
                 <div>
                     <h3>Event Settings</h3>
@@ -154,24 +170,35 @@ export default function Admin() {
                             <input
                                 type="date"
                                 value={settings.earlyBirdCutoff || ''}
-                                onChange={e => setSettings({ ...settings, earlyBirdCutoff: e.target.value || undefined })}
+                                onChange={e => setSettings({
+                                    ...settings,
+                                    earlyBirdCutoff: e.target.value || undefined
+                                })}
                             />
                         </div>
+
                         <div className="field span-4">
                             <label>Competition mode</label>
                             <select
                                 value={settings.compMode}
-                                onChange={e => setSettings({ ...settings, compMode: e.target.value as Settings['compMode'] })}
+                                onChange={e => setSettings({
+                                    ...settings,
+                                    compMode: e.target.value as Settings['compMode']
+                                })}
                             >
                                 <option value="weight">Weight</option>
                                 <option value="measure">Measure (length)</option>
                             </select>
                         </div>
+
                         <div className="field span-4">
                             <label>Prize mode</label>
                             <select
                                 value={settings.prizeMode}
-                                onChange={e => setSettings({ ...settings, prizeMode: e.target.value as Settings['prizeMode'] })}
+                                onChange={e => setSettings({
+                                    ...settings,
+                                    prizeMode: e.target.value as Settings['prizeMode']
+                                })}
                             >
                                 <option value="combined">Combined</option>
                                 <option value="split">Split Adult/Junior</option>
@@ -182,28 +209,42 @@ export default function Admin() {
                             <label>Show catch time</label>
                             <select
                                 value={settings.showTime ? '1' : '0'}
-                                onChange={e => setSettings({ ...settings, showTime: e.target.value === '1' })}
+                                onChange={e => setSettings({
+                                    ...settings,
+                                    showTime: e.target.value === '1'
+                                })}
                             >
                                 <option value="1">Yes</option>
                                 <option value="0">No</option>
                             </select>
                         </div>
+
                         <div className="field span-4">
                             <label>Require catch time</label>
                             <select
                                 value={settings.requireTime ? '1' : '0'}
-                                onChange={e => setSettings({ ...settings, requireTime: e.target.value === '1' })}
+                                onChange={e => setSettings({
+                                    ...settings,
+                                    requireTime: e.target.value === '1'
+                                })}
                             >
                                 <option value="1">Yes</option>
                                 <option value="0">No</option>
                             </select>
                         </div>
+
                         <div className="field span-4">
                             <label>Decimals</label>
                             <input
-                                type="number" step="1" min="0" max="3"
+                                type="number"
+                                step="1"
+                                min="0"
+                                max="3"
                                 value={settings.decimals}
-                                onChange={e => setSettings({ ...settings, decimals: Number(e.target.value || 0) })}
+                                onChange={e => setSettings({
+                                    ...settings,
+                                    decimals: Number(e.target.value || 0)
+                                })}
                             />
                         </div>
 
@@ -214,17 +255,24 @@ export default function Admin() {
                                 value={settings.fees.Adult.early}
                                 onChange={(n) => setSettings({
                                     ...settings,
-                                    fees: { ...settings.fees, Adult: { ...settings.fees.Adult, early: n } }
+                                    fees: {
+                                        ...settings.fees,
+                                        Adult: { ...settings.fees.Adult, early: n }
+                                    }
                                 })}
                             />
                         </div>
+
                         <div className="field span-6">
                             <label>Adult standard fee</label>
                             <MoneyInput
                                 value={settings.fees.Adult.standard}
                                 onChange={(n) => setSettings({
                                     ...settings,
-                                    fees: { ...settings.fees, Adult: { ...settings.fees.Adult, standard: n } }
+                                    fees: {
+                                        ...settings.fees,
+                                        Adult: { ...settings.fees.Adult, standard: n }
+                                    }
                                 })}
                             />
                         </div>
@@ -236,20 +284,28 @@ export default function Admin() {
                                 value={settings.fees.Junior.early}
                                 onChange={(n) => setSettings({
                                     ...settings,
-                                    fees: { ...settings.fees, Junior: { ...settings.fees.Junior, early: n } }
+                                    fees: {
+                                        ...settings.fees,
+                                        Junior: { ...settings.fees.Junior, early: n }
+                                    }
                                 })}
                             />
                         </div>
+
                         <div className="field span-6">
                             <label>Junior standard fee</label>
                             <MoneyInput
                                 value={settings.fees.Junior.standard}
                                 onChange={(n) => setSettings({
                                     ...settings,
-                                    fees: { ...settings.fees, Junior: { ...settings.fees.Junior, standard: n } }
+                                    fees: {
+                                        ...settings.fees,
+                                        Junior: { ...settings.fees.Junior, standard: n }
+                                    }
                                 })}
                             />
                         </div>
+
                     </div>
 
                     <div className="actions">
@@ -272,7 +328,9 @@ export default function Admin() {
                     <hr className="divider" />
 
                     <h3>Species visibility</h3>
-                    <p className="sub">Only species checked here appear in Submit / Prizes / Results / Public leaderboard.</p>
+                    <p className="sub">
+                        Only species checked here appear in Submit / Prizes / Results / Public leaderboard.
+                    </p>
 
                     <div className="actions" style={{ marginBottom: 8 }}>
                         <button className="btn" onClick={() => toggleAll(true)}>Select all</button>
@@ -281,11 +339,12 @@ export default function Admin() {
 
                     <div className="form-grid">
                         {species.map(sp => (
-                            <label key={sp.id} className="field span-4" style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                            <label key={sp.id} className="field span-4"
+                                style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                                 <input
                                     type="checkbox"
                                     checked={activeSetLocal.has(sp.id)}
-                                    onChange={e => toggleOne(sp.id, (e.target as HTMLInputElement).checked)}
+                                    onChange={e => toggleOne(sp.id, e.target.checked)}
                                     style={{ width: 18, height: 18 }}
                                 />
                                 <span>{sp.name}</span>
