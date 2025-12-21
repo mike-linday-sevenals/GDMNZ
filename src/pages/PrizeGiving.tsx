@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState } from "react";
 import {
     fetchSettings,
     listCompetitions,
@@ -75,7 +75,7 @@ export default function PrizeGiving() {
 
                 map[sName][cat][p.rank] = {
                     label: p.label ?? "",
-                    sponsor: p.sponsor_name || p.sponsor || null,
+                    sponsor: p.sponsor ?? null, // ✅ FIXED FOR REAL TYPE
                 };
             }
 
@@ -109,8 +109,6 @@ export default function PrizeGiving() {
         return ranked[place - 1] ?? null;
     }
 
-    const mode: "combined" | "split" = settings?.prizeMode || "combined";
-
     /* -------------------------------------------------- */
     /* Render */
     /* -------------------------------------------------- */
@@ -127,7 +125,7 @@ export default function PrizeGiving() {
                         width: "30%",
                         minWidth: "220px",
                         maxWidth: "300px",
-                        textAlign: "left"
+                        textAlign: "left",
                     }}
                 >
                     <option value="">-- Select Competition --</option>
@@ -155,11 +153,7 @@ export default function PrizeGiving() {
                 };
 
                 const pz = node.combined;
-
-                // 🔔 Announcement order: 3 → 2 → 1
-                const places = Object.keys(pz)
-                    .map(Number)
-                    .sort((a, b) => b - a);
+                const places = Object.keys(pz).map(Number).sort((a, b) => b - a);
 
                 if (!places.length) {
                     return (
@@ -209,7 +203,7 @@ export default function PrizeGiving() {
                                         );
                                     }
 
-                                    const prize = pz[place] || { label: "", sponsor: "" };
+                                    const prize = pz[place] || { label: "", sponsor: null };
                                     const dt = new Date(c.created_at);
 
                                     return (
@@ -239,7 +233,9 @@ export default function PrizeGiving() {
                                                 })}
                                             </td>
                                             <td>{prize.label}</td>
-                                            <td className="sponsor">{prize.sponsor}</td>
+                                            <td className="sponsor">
+                                                {prize.sponsor ?? "—"}
+                                            </td>
                                         </tr>
                                     );
                                 })}
