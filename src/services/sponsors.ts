@@ -65,3 +65,39 @@ export async function listCompetitionSponsors(competition_id: string) {
   if (error) throw error
   return data ?? []
 }
+// ---------------------------------------------------------------------------
+// Sponsors
+// ---------------------------------------------------------------------------
+
+export async function listSponsors() {
+    const { data, error } = await supabase
+        .from('sponsors')
+        .select('id, name')
+        .order('name')
+
+    if (error) throw error
+    return data ?? []
+}
+// ---------------------------------------------------------------------------
+// Competition sponsors
+// ---------------------------------------------------------------------------
+
+export async function updateCompetitionSponsor(
+    id: string,
+    updates: {
+        level_id: string
+        display_order: number | null
+        blurb: string | null
+    }
+) {
+    const { error } = await supabase
+        .from('competition_sponsor')
+        .update({
+            level_id: updates.level_id,
+            display_order: updates.display_order,
+            blurb: updates.blurb,
+        })
+        .eq('id', id)
+
+    if (error) throw error
+}

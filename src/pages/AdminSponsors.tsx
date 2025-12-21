@@ -1,184 +1,202 @@
-// src/pages/AdminSponsors.tsx
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
-    createSponsor,
+    listSponsors,
     fetchDefaultGroupLevels,
-    addSponsorToCompetition,
     listCompetitionSponsors,
+    addSponsorToCompetition,
 } from '@/services/sponsors'
 import { listCompetitions } from '@/services/api'
 
-const BLURB_MAX = 240
+type Competition = { id: string; name: string }
+type Sponsor = { id: string; name: string }
+type Level = { id: string; label: string }
+
+type CompetitionSponsor = {
+    id: string
+    sponsor_id: string
+    sponsor_name: string
+    level_id: string
+}
 
 export default function AdminSponsors() {
-    const [competitionId, setCompetitionId] = useState<string>('')
+    const [competitions, setCompetitions] = useState<Competition[]>([])
+    const [competitionId, setCompetitionId] = useState('')
+    const [rows, setRows] = useState<CompetitionSponsor[]>([])
+    const [levels, setLevels] = useState<Level[]>([])
+    const [allSponsors, setAllSponsors] = useState<Sponsor[]>([])
+    const [adding, setAdding] = useState(false)
+    const [sponsorId, setSponsorId] = useState('')
+    const [levelId, setLevelId] = useState('')
 
-    const [name, setName] = useState('')
-    const [levels, setLevels] = useState<{ id: string; label: string }[]>([])
-    const [levelId, setLevelId] = useState<string>('')
-    const [displayOrder, setDisplayOrder] = useState<string>('')
-    const [blurb, setBlurb] = useState('')
-
-    const [linked, setLinked] = useState<any[]>([])
-    const [loading, setLoading] = useState(true)
-    const [saving, setSaving] = useState(false)
-
-    const blurbRef = useRef<HTMLTextAreaElement | null>(null)
-
-    function autosize(el: HTMLTextAreaElement) {
-        el.style.height = '0px'
-        el.style.height = el.scrollHeight + 'px'
-    }
-
-    useEffect(() => {
-        if (blurbRef.current) autosize(blurbRef.current)
-    }, [blurb])
+    /* ---------------- Load initial data ---------------- */
 
     useEffect(() => {
         ; (async () => {
-            try {
-                const comps = await listCompetitions()
-                if (!comps.length) return
+            const comps = await listCompetitions()
+            setCompetitions(comps)
 
-                const current = comps.sort(
-                    (a: any, b: any) =>
-                        new Date(b.starts_at).getTime() -
-                        new Date(a.starts_at).getTime()
-                )[0]
-
-                setCompetitionId(current.id)
-
-                const lvls = await fetchDefaultGroupLevels()
-                setLevels(lvls)
-                if (lvls.length) setLevelId(lvls[0].id)
-
-                const rows = await listCompetitionSponsors(current.id)
-                setLinked(rows)
-            } finally {
-                setLoading(false)
-            }
+            // DO NOT auto-select a competition
+            setLevels(await fetchDefaultGroupLevels())
+            setAllSponsors(await listSponsors())
         })()
     }, [])
 
-    async function handleAdd() {
-        if (!name.trim() || !competitionId) return
+    /* ---------------- Load sponsors when competition changes ---------------- */
 
-        setSaving(true)
-        try {
-            const sponsor = await createSponsor(name.trim())
-
-            await addSponsorToCompetition({
-                competition_id: competitionId,
-                sponsor_id: sponsor.id,
-                level_id: levelId || null,
-                display_order: displayOrder === '' ? null : Number(displayOrder),
-                blurb: blurb || null,
-            })
-
-            const rows = await listCompetitionSponsors(competitionId)
-            setLinked(rows)
-
-            setName('')
-            setDisplayOrder('')
-            setBlurb('')
-        } finally {
-            setSaving(false)
+    useEffect(() => {
+        if (!competitionId) {
+            setRows([])
+            return
         }
+
+        ; (async () => {
+            setRows(await listCompetitionSponsors(competitionId))
+        })()
+    }, [competitionId])
+
+    /* ---------------- Helpers ---------------- */
+
+    function sponsorAlreadyAdded(id: string) {
+        return rows.some(r => r.sponsor_id === id)
     }
 
-    if (loading) {
-        return (
-            <section className="card">
-                <h3>Sponsors</h3>
-                <p className="muted">Loading…</p>
-            </section>
-        )
+    /* ---------------- Add sponsor ---------------- */
+
+    async function addSponsor() {
+        if (!competitionId || !sponsorId || !levelId) return
+
+        if (sponsorAlreadyAdded(sponsorId)) {
+            alert('This sponsor is already added to this competition.')
+            return
+        }
+
+        await addSponsorToCompetition({
+            competition_id: competitionId,
+            sponsor_id: sponsorId,
+            level_id: levelId,
+            display_order: null,
+            blurb: null,
+        })
+
+        setRows(await listCompetitionSponsors(competitionId))
+        setAdding(false)
+        setSponsorId('')
+        setLevelId('')
     }
 
     return (
-        <section className="card">
-            <h3>Sponsors</h3>
-            <p className="sub">
-                Competition: {competitionId.slice(0, 8)}…
-            </p>
-
-            <div
-                className="grid"
-                style={{
-                    gridTemplateColumns: 'minmax(280px, 1fr) 180px 110px auto',
-                    gap: 8,
-                    alignItems: 'center',
-                }}
-            >
-                <input
-                    placeholder="Sponsor name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                />
-
-                <select value={levelId} onChange={(e) => setLevelId(e.target.value)}>
-                    {levels.map((l) => (
-                        <option key={l.id} value={l.id}>
-                            {l.label}
+        <>
+            {/* Competition selector */}
+            <section className="card">
+                <select
+                    value={competitionId}
+                    onChange={e => setCompetitionId(e.target.value)}
+                >
+                    <option value="">Select a tournament…</option>
+                    {competitions.map(c => (
+                        <option key={c.id} value={c.id}>
+                            {c.name}
                         </option>
                     ))}
                 </select>
 
-                <input
-                    type="number"
-                    placeholder="Order"
-                    value={displayOrder}
-                    onChange={(e) => setDisplayOrder(e.target.value)}
-                />
-
-                <button
-                    className="btn"
-                    onClick={handleAdd}
-                    disabled={saving || !name.trim()}
-                >
-                    {saving ? 'Saving…' : 'Add'}
-                </button>
-            </div>
-
-            <div style={{ marginTop: 8 }}>
-                <label className="muted">Blurb (optional)</label>
-                <textarea
-                    ref={blurbRef}
-                    value={blurb}
-                    maxLength={BLURB_MAX}
-                    onInput={(e) => {
-                        const el = e.currentTarget
-                        setBlurb(el.value)
-                        autosize(el)
-                    }}
-                    placeholder="Short sponsor description shown on prizegiving pages…"
-                    style={{
-                        width: '100%',
-                        minHeight: 44,
-                        resize: 'none',
-                        overflow: 'hidden',
-                    }}
-                />
-                <div className="muted" style={{ textAlign: 'right', fontSize: 12 }}>
-                    {blurb.length}/{BLURB_MAX}
-                </div>
-            </div>
-
-            <ul className="list" style={{ marginTop: 12 }}>
-                {linked.length === 0 && (
-                    <li className="muted">No sponsors linked for this competition.</li>
+                {!competitionId && (
+                    <p className="muted small">
+                        Please select a tournament to manage sponsors.
+                    </p>
                 )}
-                {linked.map((row: any) => (
-                    <li key={row.id}>
-                        <strong>{row.display_order ?? '—'}</strong>{' '}
-                        {row.sponsor_name}
-                        {row.level_label && (
-                            <span className="muted"> ({row.level_label})</span>
-                        )}
-                        {row.blurb && <span className="muted"> — {row.blurb}</span>}
-                    </li>
-                ))}
-            </ul>
-        </section>
+
+                {competitionId && (
+                    <p className="muted small">
+                        Showing sponsors for{' '}
+                        <strong>
+                            {competitions.find(c => c.id === competitionId)?.name}
+                        </strong>
+                    </p>
+                )}
+            </section>
+
+            {/* Sponsor list */}
+            {competitionId && (
+                <section className="card">
+                    {/* Empty state */}
+                    {rows.length === 0 && (
+                        <p className="muted small">No sponsors added yet.</p>
+                    )}
+
+                    {/* Existing sponsors */}
+                    {rows.map(row => (
+                        <div key={row.id} className="row-card sponsor-row">
+                            <div className="sponsor-meta">
+                                <strong>{row.sponsor_name}</strong>
+                                <span className="muted">
+                                    {
+                                        levels.find(
+                                            l => l.id === row.level_id
+                                        )?.label
+                                    }
+                                </span>
+                            </div>
+
+                            <button
+                                className="btn"
+                                onClick={() => alert('Edit coming next')}
+                            >
+                                Edit
+                            </button>
+                        </div>
+                    ))}
+
+                    {/* Add sponsor */}
+                    {!adding ? (
+                        <button className="btn" onClick={() => setAdding(true)}>
+                            + Add sponsor
+                        </button>
+                    ) : (
+                        <div className="row-card">
+                            <select
+                                value={sponsorId}
+                                onChange={e => setSponsorId(e.target.value)}
+                            >
+                                <option value="">Select sponsor…</option>
+                                {allSponsors.map(s => (
+                                    <option key={s.id} value={s.id}>
+                                        {s.name}
+                                    </option>
+                                ))}
+                            </select>
+
+                            <select
+                                value={levelId}
+                                onChange={e => setLevelId(e.target.value)}
+                            >
+                                <option value="">Select level…</option>
+                                {levels.map(l => (
+                                    <option key={l.id} value={l.id}>
+                                        {l.label}
+                                    </option>
+                                ))}
+                            </select>
+
+                            <div className="actions">
+                                <button
+                                    className="btn primary"
+                                    disabled={!sponsorId || !levelId}
+                                    onClick={addSponsor}
+                                >
+                                    Add
+                                </button>
+                                <button
+                                    className="btn"
+                                    onClick={() => setAdding(false)}
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </section>
+            )}
+        </>
     )
 }

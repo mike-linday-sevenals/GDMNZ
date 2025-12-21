@@ -1,71 +1,84 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from "@supabase/supabase-js";
 
-const sb = createClient(
-  import.meta.env.VITE_SUPABASE_URL as string,
-  import.meta.env.VITE_SUPABASE_ANON_KEY as string
-)
+// same env vars as api.ts
+const supabase = createClient(
+    import.meta.env.VITE_SUPABASE_URL,
+    import.meta.env.VITE_SUPABASE_ANON_KEY
+);
 
-export type Category = 'combined' | 'adult' | 'junior'
+export type Category = "combined" | "adult" | "junior";
 
 export type PrizeRow = {
-  id: string
-  rank: number
-  label: string
-  species_id: number
-  sponsor: string | null
-  sponsor_id: string | null
-  for_category: Category
-  active: boolean | null
-  created_at: string
+    id: string;
+    competition_id: string;
+    species_id: number;
+    rank: number;
+    label: string | null;
+    for_category: Category | null;
+
+    sponsor_id: string | null;
+
+    // legacy column (read-only)
+    sponsor: string | null;
+
+    active: boolean | null;
+    created_at: string;
+};
+
+/* -------------------------------------------------- */
+/* List prizes for a competition */
+/* -------------------------------------------------- */
+export async function listPrizesForCompetition(
+    competitionId: string
+): Promise<PrizeRow[]> {
+    const { data, error } = await supabase
+        .from("prize")
+        .select("*")
+        .eq("competition_id", competitionId)
+        .neq("active", false)
+        .order("rank", { ascending: true });
+
+    if (error) throw error;
+    return data ?? [];
 }
 
-export async function listPrizes(): Promise<PrizeRow[]> {
-  const { data, error } = await sb
-    .from('prize')
-    .select('*')
-    .order('species_id', { ascending: true })
-    .order('for_category', { ascending: true })
-    .order('rank', { ascending: true })
-  if (error) throw error
-  return data as PrizeRow[]
+/* -------------------------------------------------- */
+/* Create / update prize */
+/* -------------------------------------------------- */
+export async function upsertPrize(input: {
+    id?: string;
+    competition_id: string;
+    species_id: number;
+    rank: number;
+    label: string | null;
+    for_category: Category;
+    sponsor_id: string | null;
+}) {
+    const { error } = await supabase.from("prize").upsert(
+        {
+            id: input.id,
+            competition_id: input.competition_id,
+            species_id: input.species_id,
+            rank: input.rank,
+            label: input.label,
+            for_category: input.for_category,
+            sponsor_id: input.sponsor_id,
+            active: true,
+        },
+        { onConflict: "id" }
+    );
+
+    if (error) throw error;
 }
 
-export async function createPrizeRow(
-  p: Omit<PrizeRow, 'id' | 'created_at'>
-): Promise<PrizeRow> {
-  const { data, error } = await sb.from('prize').insert(p).select().single()
-  if (error) throw error
-  return data as PrizeRow
-}
+/* -------------------------------------------------- */
+/* Soft delete prize */
+/* -------------------------------------------------- */
+export async function removePrizeRow(id: string) {
+    const { error } = await supabase
+        .from("prize")
+        .update({ active: false })
+        .eq("id", id);
 
-export async function updatePrizeRow(
-  id: string,
-  patch: Partial<PrizeRow>
-): Promise<PrizeRow> {
-  const { data, error } = await sb.from('prize').update(patch).eq('id', id).select().single()
-  if (error) throw error
-  return data as PrizeRow
-}
-
-export async function deletePrizeRow(id: string): Promise<void> {
-  const { error } = await sb.from('prize').delete().eq('id', id)
-  if (error) throw error
-}
-
-/** helpers */
-export async function getNextRank(
-  species_id: number,
-  for_category: Category
-): Promise<number> {
-  const { data, error } = await sb
-    .from('prize')
-    .select('rank')
-    .eq('species_id', species_id)
-    .eq('for_category', for_category)
-    .order('rank', { ascending: false })
-    .limit(1)
-    .single()
-  // PGRST116 = no rows
-  if (error && (error as any).code !== 'PGRST116') throw error
-  return data?.rank ? (data.rank as number) + 1 : 1
+    if (error) throw error;
 }

@@ -1,4 +1,4 @@
-:root{
+﻿:root{
   --bg:#eef3f7; --card:#ffffff; --muted:#f3f6f9; --text:#152235; --text-muted:#6b7280;
   --border:#dde3ea; --accent:#0ea5e9; --accent-strong:#2563eb; --warn:#f59e0b; --danger:#ef4444; --ok:#059669;
 }
@@ -182,4 +182,56 @@ summary{cursor:pointer;color:#111}
     justify-content: center;
     text-decoration: none !important;
     cursor: pointer;
+}
+/* ============================
+   Sponsors list layout
+   ============================ */
+
+.stack {
+    padding: 0;
+    border: none;
+}
+
+/* Horizontal sponsor rows */
+.row-card.sponsor-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    margin-bottom: 8px;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    background: #fff;
+}
+
+/* Left meta */
+.sponsor-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+/* Inline edit layout */
+.edit-inline {
+    display: grid;
+    grid-template-columns: 200px 1fr auto;
+    gap: 12px;
+    width: 100%;
+}
+
+/* Buttons stay aligned */
+.actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+/* Prevent buttons wrapping */
+.btn {
+    white-space: nowrap;
+}
+
+/* Add button spacing */
+.actions-row {
+    margin-top: 12px;
 }
