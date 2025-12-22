@@ -51,6 +51,7 @@ export async function fetchCompetitionFees(competitionId: string) {
     return await getCompetitionFees(competitionId);
 }
 
+export type BoatType = "Launch" | "Trailer" | "Charter";
 
 
 // ============================================================================
@@ -732,7 +733,7 @@ export async function listFishJoined(): Promise<FishJoined[]> {
             length_cm,
             time_caught,
             created_at,
-            competitor:competitor_id ( id, full_name, category, boat, paid_on ),
+            competitor:competitor_id ( id, full_name, category, boat,  membership_no, email, phone, paid_on, created_at ),
             species:species_id ( id, name )
         `)
         .order("created_at", { ascending: false });
@@ -873,7 +874,7 @@ export async function listCompetitorsForCompetition(competitionId: string) {
         .from("competition_competitor")
         .select(`
             competitor:competitor_id (
-                id, full_name, category, boat, email, phone, paid_on, created_at
+                id, full_name, category, boat,  boat_type, membership_no, email, phone, paid_on, created_at
             )
         `)
         .eq("competition_id", competitionId)
@@ -1132,6 +1133,44 @@ export async function deleteSponsor(id: string): Promise<void> {
         .from("sponsors")
         .delete()
         .eq("id", id);
+
+    if (error) throw error;
+}
+
+// ============================================================================
+// BOATS — bulk update helpers
+// ============================================================================
+
+export async function updateBoatForCompetition(
+    competitionId: string,
+    oldBoatName: string,
+    patch: {
+        boat: string;
+        boat_type: BoatType;
+    }
+): Promise<void> {
+    if (!client) throw new Error("Supabase not ready");
+
+    // 1. Get competitor IDs for this competition
+    const { data: links, error: linkErr } = await client
+        .from("competition_competitor")
+        .select("competitor_id")
+        .eq("competition_id", competitionId);
+
+    if (linkErr) throw linkErr;
+    if (!links || links.length === 0) return;
+
+    const competitorIds = links.map(l => l.competitor_id);
+
+    // 2. Bulk update competitors on this boat
+    const { error } = await client
+        .from("competitor")
+        .update({
+            boat: patch.boat.trim(),
+            boat_type: patch.boat_type
+        })
+        .eq("boat", oldBoatName)
+        .in("id", competitorIds);
 
     if (error) throw error;
 }

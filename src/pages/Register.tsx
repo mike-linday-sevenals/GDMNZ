@@ -10,6 +10,7 @@ import {
 } from "@/services/api";
 
 import { computeFee, todayISO } from "@/utils";
+import { updateBoatForCompetition } from "@/services/api";
 
 /* =========================================================
    Types
@@ -49,6 +50,11 @@ export type Competitor = {
     boat_type: BoatType;
 };
 
+
+
+
+
+
 /* =========================================================
    Helpers
 ========================================================= */
@@ -86,6 +92,10 @@ export default function Register() {
 
     const [draft, setDraft] = useState<AnglerDraft | null>(null);
     const [openBoats, setOpenBoats] = useState<Set<string>>(new Set());
+
+    const [editingBoat, setEditingBoat] = useState<string | null>(null);
+    const [boatDraft, setBoatDraft] = useState<{ name: string; type: BoatType } | null>(null);
+
 
     /* ----------------------------- Load competitions ----------------------------- */
 
@@ -182,7 +192,7 @@ export default function Register() {
     };
 
     const startAddToBoat = (boatName: string) => {
-        setEditingId(null);
+        setEditingId("__new__");          // 👈 this is the key
         setAddingToBoat(boatName);
         setDraft({
             full_name: "",
@@ -414,11 +424,13 @@ export default function Register() {
                 {boats.map(([boatName, anglers]) => {
                     const open = openBoats.has(boatName);
                     const boatType = anglers[0].boat_type;
+                    const isEditingBoat = editingBoat === boatName;
 
                     return (
                         <div key={boatName} className="card" style={{ marginTop: 12 }}>
+                            {/* ---------- Boat Header ---------- */}
                             <div
-                                style={{ display: "flex", gap: 12, cursor: "pointer" }}
+                                style={{ display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}
                                 onClick={() =>
                                     setOpenBoats(p => {
                                         const n = new Set(p);
@@ -428,9 +440,92 @@ export default function Register() {
                                 }
                             >
                                 <strong>{open ? "▼" : "▶"} {boatName}</strong>
-                                <span className="badge">{anglers.length} anglers</span>
+
+                                <span className="badge">{boatType}</span>
+                                <span className="badge">
+                                    {anglers.length} {anglers.length === 1 ? "angler" : "anglers"}
+                                </span>
+
+                                {open && (
+                                    <div style={{ marginLeft: "auto" }}>
+                                        <button
+                                            className="btn small"
+                                            onClick={e => {
+                                                e.stopPropagation();
+                                                setEditingBoat(boatName);
+                                                setBoatDraft({ name: boatName, type: boatType });
+                                            }}
+                                        >
+                                            Edit boat
+                                        </button>
+                                    </div>
+                                )}
                             </div>
 
+                            {/* ---------- Boat Edit Row ---------- */}
+                            {open && isEditingBoat && boatDraft && (
+                                <div className="row" style={{ marginTop: 8 }}>
+                                    <div className="col-6">
+                                        <input
+                                            value={boatDraft.name}
+                                            onChange={e =>
+                                                setBoatDraft(d => d ? { ...d, name: e.target.value } : d)
+                                            }
+                                        />
+                                    </div>
+
+                                    <div className="col-3">
+                                        <select
+                                            value={boatDraft.type}
+                                            onChange={e =>
+                                                setBoatDraft(d =>
+                                                    d ? { ...d, type: e.target.value as BoatType } : d
+                                                )
+                                            }
+                                        >
+                                            <option>Launch</option>
+                                            <option>Trailer</option>
+                                            <option>Charter</option>
+                                        </select>
+                                    </div>
+
+                                    <div className="col-3">
+                                        <button
+                                            className="btn primary small"
+                                            onClick={async () => {
+                                                if (!boatDraft || !competitionId) return;
+
+                                                await updateBoatForCompetition(
+                                                    competitionId,
+                                                    boatName,
+                                                    {
+                                                        boat: boatDraft.name.trim(),
+                                                        boat_type: boatDraft.type
+                                                    }
+                                                );
+
+                                                setRows(await listCompetitorsForCompetition(competitionId));
+                                                setEditingBoat(null);
+                                                setBoatDraft(null);
+                                            }}
+                                        >
+                                            Save
+                                        </button>
+                                        <button
+                                            className="btn small"
+                                            style={{ marginLeft: 6 }}
+                                            onClick={() => {
+                                                setEditingBoat(null);
+                                                setBoatDraft(null);
+                                            }}
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* ---------- Anglers Table ---------- */}
                             {open && (
                                 <>
                                     <table style={{ marginTop: 8 }}>
@@ -445,7 +540,94 @@ export default function Register() {
                                                 <th>Edit</th>
                                             </tr>
                                         </thead>
+
                                         <tbody>
+                                            {/* ===== INLINE NEW ANGLER ROW ===== */}
+                                            {editingId === "__new__" &&
+                                                addingToBoat === boatName &&
+                                                draft && (
+                                                    <tr>
+                                                        <td>
+                                                            <input
+                                                                autoFocus
+                                                                value={draft.full_name}
+                                                                onChange={e =>
+                                                                    setDraft(d => ({
+                                                                        ...(d as AnglerDraft),
+                                                                        full_name: e.target.value
+                                                                    }))
+                                                                }
+                                                            />
+                                                        </td>
+
+                                                        <td>
+                                                            <select
+                                                                value={draft.category}
+                                                                onChange={e =>
+                                                                    setDraft(d => ({
+                                                                        ...(d as AnglerDraft),
+                                                                        category: e.target.value as DisplayCategory
+                                                                    }))
+                                                                }
+                                                            >
+                                                                <option>Adult</option>
+                                                                <option>Junior</option>
+                                                            </select>
+                                                        </td>
+
+                                                        <td>
+                                                            <input
+                                                                value={draft.membership_no}
+                                                                onChange={e =>
+                                                                    setDraft(d => ({
+                                                                        ...(d as AnglerDraft),
+                                                                        membership_no: e.target.value
+                                                                    }))
+                                                                }
+                                                            />
+                                                        </td>
+
+                                                        <td>{formatDateNZ(todayISO())}</td>
+
+                                                        <td>
+                                                            {settings
+                                                                ? `$${computeFee(settings, draft.category, todayISO())}`
+                                                                : ""}
+                                                        </td>
+
+                                                        <td>
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={draft.paid}
+                                                                onChange={e =>
+                                                                    setDraft(d => ({
+                                                                        ...(d as AnglerDraft),
+                                                                        paid: e.target.checked,
+                                                                        paid_on: e.target.checked ? todayISO() : null
+                                                                    }))
+                                                                }
+                                                            />
+                                                        </td>
+
+                                                        <td>
+                                                            <button
+                                                                className="btn primary"
+                                                                onClick={() => saveNewToBoat(boatName, boatType)}
+                                                            >
+                                                                Save
+                                                            </button>
+                                                            <button
+                                                                className="btn"
+                                                                style={{ marginLeft: 6 }}
+                                                                onClick={cancelEdit}
+                                                            >
+                                                                Cancel
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                )}
+
+                                            {/* ===== EXISTING ANGLERS ===== */}
                                             {anglers.map(r => {
                                                 const rowId = String(r.id);
                                                 const isEditing = editingId === rowId;
@@ -489,74 +671,76 @@ export default function Register() {
                                                             <input
                                                                 value={draft?.full_name || ""}
                                                                 onChange={e =>
-                                                                    setDraft(d => ({ ...(d as AnglerDraft), full_name: e.target.value }))
+                                                                    setDraft(d => ({
+                                                                        ...(d as AnglerDraft),
+                                                                        full_name: e.target.value
+                                                                    }))
                                                                 }
                                                             />
                                                         </td>
+
                                                         <td>
                                                             <select
                                                                 value={draft?.category}
                                                                 onChange={e =>
-                                                                    setDraft(d => ({ ...(d as AnglerDraft), category: e.target.value as DisplayCategory }))
+                                                                    setDraft(d => ({
+                                                                        ...(d as AnglerDraft),
+                                                                        category: e.target.value as DisplayCategory
+                                                                    }))
                                                                 }
                                                             >
                                                                 <option>Adult</option>
                                                                 <option>Junior</option>
                                                             </select>
                                                         </td>
+
                                                         <td>
                                                             <input
                                                                 value={draft?.membership_no || ""}
                                                                 onChange={e =>
-                                                                    setDraft(d => ({ ...(d as AnglerDraft), membership_no: e.target.value }))
+                                                                    setDraft(d => ({
+                                                                        ...(d as AnglerDraft),
+                                                                        membership_no: e.target.value
+                                                                    }))
                                                                 }
                                                             />
                                                         </td>
+
                                                         <td>{formatDateNZ(r.created_at)}</td>
                                                         <td>{amount != null ? `$${amount.toFixed(0)}` : ""}</td>
+
                                                         <td>
-                                                            <label style={{ display: "flex", gap: 6 }}>
-                                                                <input
-                                                                    type="checkbox"
-                                                                    checked={!!draft?.paid}
-                                                                    onChange={e =>
-                                                                        setDraft(d => ({
-                                                                            ...(d as AnglerDraft),
-                                                                            paid: e.target.checked,
-                                                                            paid_on: e.target.checked ? todayISO() : null
-                                                                        }))
-                                                                    }
-                                                                />
-                                                                Paid
-                                                            </label>
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={!!draft?.paid}
+                                                                onChange={e =>
+                                                                    setDraft(d => ({
+                                                                        ...(d as AnglerDraft),
+                                                                        paid: e.target.checked,
+                                                                        paid_on: e.target.checked ? todayISO() : null
+                                                                    }))
+                                                                }
+                                                            />
                                                         </td>
+
                                                         <td>
-                                                            <button className="btn primary" onClick={() => saveExisting(r.id)}>
+                                                            <button
+                                                                className="btn primary"
+                                                                onClick={() => saveExisting(r.id)}
+                                                            >
                                                                 Save
                                                             </button>
-                                                            <button className="btn" onClick={cancelEdit} style={{ marginLeft: 6 }}>
+                                                            <button
+                                                                className="btn"
+                                                                style={{ marginLeft: 6 }}
+                                                                onClick={cancelEdit}
+                                                            >
                                                                 Cancel
                                                             </button>
                                                         </td>
                                                     </tr>
                                                 );
                                             })}
-
-                                            {addingToBoat === boatName && draft && (
-                                                <tr>
-                                                    <td colSpan={7}>
-                                                        <button
-                                                            className="btn primary"
-                                                            onClick={() => saveNewToBoat(boatName, boatType)}
-                                                        >
-                                                            Save new angler
-                                                        </button>
-                                                        <button className="btn" style={{ marginLeft: 6 }} onClick={cancelEdit}>
-                                                            Cancel
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            )}
                                         </tbody>
                                     </table>
 
@@ -575,6 +759,8 @@ export default function Register() {
                     );
                 })}
             </section>
+
+
         </>
     );
 }
