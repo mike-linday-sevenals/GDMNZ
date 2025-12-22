@@ -12,6 +12,8 @@ import type {
     Competition
 } from "@/types";
 
+
+
 // ============================================================================
 // HELPERS (LOCAL FALLBACK)
 // ============================================================================
@@ -48,6 +50,7 @@ function safeUrl(u?: string | null) {
 export async function fetchCompetitionFees(competitionId: string) {
     return await getCompetitionFees(competitionId);
 }
+
 
 
 // ============================================================================
@@ -756,7 +759,7 @@ export async function listCompetitors(): Promise<Competitor[]> {
 
     const { data, error } = await client
         .from("competitor")
-        .select("id, full_name, category, boat, email, phone, paid_on, created_at")
+        .select(`id,full_name,category,boat,membership_no,boat_type,email,phone,paid_on,created_at`)
         .order("created_at", { ascending: false });
 
     if (error) throw error;
@@ -791,22 +794,37 @@ export async function addCompetitor(
 export async function updateCompetitor(
     id: string | number,
     patch: Partial<
-        Pick<Competitor, "full_name" | "category" | "boat" | "email" | "phone" | "paid_on">
+        Pick<Competitor,
+            "full_name" |
+            "category" |
+            "paid_on" |
+            "membership_no" |
+            "boat" 
+        >
     >
 ): Promise<Competitor> {
-    const norm: any = {};
+    const norm: Partial<Competitor> = {};
 
-    if (patch.full_name != null) norm.full_name = patch.full_name.trim();
-    if (patch.category != null) norm.category = patch.category;
-    norm.boat = patch.boat?.trim() || null;
-    norm.email = patch.email?.trim() || null;
-    norm.phone = patch.phone?.trim() || null;
-    if (patch.paid_on != null) norm.paid_on = patch.paid_on;
+    if (patch.full_name !== undefined)
+        norm.full_name = patch.full_name.trim();
+
+    if (patch.category !== undefined)
+        norm.category = patch.category;
+
+    if (patch.boat !== undefined)
+        norm.boat = patch.boat.trim();
+
+    if (patch.membership_no !== undefined)
+        norm.membership_no = patch.membership_no.trim();
+
+    if (patch.paid_on !== undefined)
+        norm.paid_on = patch.paid_on ?? null;
 
     if (!client) {
         const list = loadLocal<Competitor[]>(STORE_KEYS.competitors, []);
         const i = list.findIndex(x => String(x.id) === String(id));
         if (i === -1) throw new Error("Competitor not found (local)");
+
         const updated = { ...list[i], ...norm };
         list[i] = updated;
         saveLocal(STORE_KEYS.competitors, list);
@@ -823,6 +841,7 @@ export async function updateCompetitor(
     if (error) throw error;
     return data as Competitor;
 }
+
 
 export async function deleteCompetitors(ids: (string | number)[]): Promise<void> {
     if (!client) {

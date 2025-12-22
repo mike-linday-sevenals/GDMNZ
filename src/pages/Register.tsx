@@ -1,647 +1,580 @@
 import { useEffect, useMemo, useState } from "react";
 import {
     addCompetitor,
-    deleteCompetitors,
     updateCompetitor,
+    deleteCompetitors,
     listCompetitions,
     listCompetitorsForCompetition,
     addCompetitorToCompetition,
     fetchCompetitionFees
 } from "@/services/api";
 
-import type { Competitor } from "@/types";
-import { computeFee, formatNZ, todayISO } from "@/utils";
+import { computeFee, todayISO } from "@/utils";
+
+/* =========================================================
+   Types
+========================================================= */
 
 type DisplayCategory = "Adult" | "Junior";
 type DomainCategory = "adult" | "junior";
+type BoatType = "Launch" | "Trailer" | "Charter";
 
-function toDisplayCat(domain: DomainCategory): DisplayCategory {
-    return domain === "adult" ? "Adult" : "Junior";
-}
+type AnglerDraft = {
+    full_name: string;
+    category: DisplayCategory;
+    membership_no: string;
+    paid: boolean;
+    paid_on: string | null;
+};
 
-function toDomainCat(display: DisplayCategory): DomainCategory {
-    return display === "Adult" ? "adult" : "junior";
-}
-
-function normName(s: string) {
-    return s.trim().replace(/\s+/g, " ").toLowerCase();
-}
-
-export default function Register() {
-    // NEW — Competition state
-    const [competitionId, setCompetitionId] = useState<string | null>(null);
-    const [competitions, setCompetitions] = useState<any[]>([]);
-
-    const [settings, setSettings] = useState<any>(null);
-    const [rows, setRows] = useState<Competitor[]>([]);
-    const [selected, setSelected] = useState<Set<string | number>>(new Set());
-
-    // Create form fields
-    const [name, setName] = useState("");
-    const [category, setCategory] = useState<DisplayCategory>("Adult");
-    const [paidOn, setPaidOn] = useState(todayISO());
-    const [email, setEmail] = useState("");
-    const [phone, setPhone] = useState("");
-    const [boat, setBoat] = useState("");
-    const [notes, setNotes] = useState("");
-
-    // Edit state
-    const [editingId, setEditingId] = useState<string | number | null>(null);
-    const [draft, setDraft] = useState<{
+type BoatDraft = {
+    boat_name: string;
+    boat_type: BoatType;
+    anglers: {
         full_name: string;
         category: DisplayCategory;
-        paid_on: string;
-        email: string;
-        phone: string;
-        boat: string;
-    } | null>(null);
+        membership_no: string;
+        paid: boolean;
+    }[];
+};
 
-    const [confirm, setConfirm] = useState<null | {
-        message: string;
-        onYes: () => void;
-        onNo: () => void;
-    }>(null);
+export type Competitor = {
+    id: string | number;
+    created_at: string;
+    full_name: string;
+    category: DomainCategory;
+    paid_on: string | null;
+    boat: string;
+    membership_no: string;
+    boat_type: BoatType;
+};
 
-    // -----------------------------
-    // Load competitions on mount
-    // -----------------------------
+/* =========================================================
+   Helpers
+========================================================= */
+
+const toDomainCategory = (c: DisplayCategory): DomainCategory =>
+    c === "Adult" ? "adult" : "junior";
+
+const toDisplayCategory = (c: DomainCategory): DisplayCategory =>
+    c === "adult" ? "Adult" : "Junior";
+
+const formatDateNZ = (d?: string | null) =>
+    d ? new Date(d).toLocaleDateString("en-NZ") : "";
+
+/* =========================================================
+   Component
+========================================================= */
+
+export default function Register() {
+    /* ----------------------------- State ----------------------------- */
+
+    const emptyBoat: BoatDraft = {
+        boat_name: "",
+        boat_type: "Trailer",
+        anglers: [{ full_name: "", category: "Adult", membership_no: "", paid: false }]
+    };
+
+    const [competitionId, setCompetitionId] = useState<string | null>(null);
+    const [competitions, setCompetitions] = useState<any[]>([]);
+    const [settings, setSettings] = useState<any>(null);
+    const [rows, setRows] = useState<Competitor[]>([]);
+    const [boat, setBoat] = useState<BoatDraft>(emptyBoat);
+
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [addingToBoat, setAddingToBoat] = useState<string | null>(null);
+
+    const [draft, setDraft] = useState<AnglerDraft | null>(null);
+    const [openBoats, setOpenBoats] = useState<Set<string>>(new Set());
+
+    /* ----------------------------- Load competitions ----------------------------- */
+
     useEffect(() => {
-        (async () => {
-            const comps = await listCompetitions();
-            setCompetitions(comps);
-        })();
+        (async () => setCompetitions(await listCompetitions()))();
     }, []);
 
-    // ---------------------------------------------------
-    // When competition changes → load fees + competitors
-    // ---------------------------------------------------
+    /* ----------------------------- Load fees + competitors ----------------------------- */
+
     useEffect(() => {
         if (!competitionId) return;
 
         (async () => {
             const fees = await fetchCompetitionFees(competitionId);
-
-            if (fees) {
-                setSettings({
-                    earlyBirdCutoff: fees.earlybird_cutoff_date,
-                    fees: {
-                        Adult: {
-                            early: Number(fees.earlybird_fee_adult),
-                            standard: Number(fees.full_fee_adult)
-                        },
-                        Junior: {
-                            early: Number(fees.earlybird_fee_junior),
-                            standard: Number(fees.full_fee_junior)
+            setSettings(
+                fees
+                    ? {
+                        fees: {
+                            Adult: {
+                                early: Number(fees.earlybird_fee_adult),
+                                standard: Number(fees.full_fee_adult)
+                            },
+                            Junior: {
+                                early: Number(fees.earlybird_fee_junior),
+                                standard: Number(fees.full_fee_junior)
+                            }
                         }
                     }
-                });
-            } else {
-                setSettings(null);
-            }
+                    : null
+            );
 
-            const compCompetitors = await listCompetitorsForCompetition(competitionId);
-            setRows(compCompetitors);
+            setRows(await listCompetitorsForCompetition(competitionId));
         })();
     }, [competitionId]);
 
-    // -----------------------------
-    // Compute fee safely
-    // -----------------------------
-    const fee = useMemo(() => {
-        if (!settings) return null;
-        if (!settings.fees || !settings.fees.Adult) return null;
-        return computeFee(settings, category, paidOn);
-    }, [settings, category, paidOn]);
+    /* ----------------------------- New boat helpers ----------------------------- */
 
-    const duplicateOnCreate = useMemo(() => {
-        const n = normName(name);
-        if (!n) return null;
-        return rows.find((r) => normName(r.full_name) === n) || null;
-    }, [name, rows]);
+    const updateAngler = (i: number, patch: Partial<BoatDraft["anglers"][0]>) =>
+        setBoat(b => ({
+            ...b,
+            anglers: b.anglers.map((a, idx) => (idx === i ? { ...a, ...patch } : a))
+        }));
 
-    // -----------------------------------
-    // REGISTER COMPETITOR
-    // -----------------------------------
-    async function doAdd(keepBoat: boolean) {
-        if (!competitionId) {
-            alert("Please select a competition first.");
-            return;
+    const addAngler = () =>
+        setBoat(b => ({
+            ...b,
+            anglers: [
+                ...b.anglers,
+                { full_name: "", category: "Adult", membership_no: "", paid: false }
+            ]
+        }));
+
+    const removeAngler = (i: number) =>
+        setBoat(b => ({ ...b, anglers: b.anglers.filter((_, idx) => idx !== i) }));
+
+    /* ----------------------------- Register new boat ----------------------------- */
+
+    const validAnglers = boat.anglers.filter(a => a.full_name.trim());
+    const canRegister =
+        !!competitionId && !!boat.boat_name.trim() && validAnglers.length > 0;
+
+    async function registerBoat() {
+        if (!competitionId || !canRegister) return;
+
+        for (const a of validAnglers) {
+            const created = await addCompetitor({
+                full_name: a.full_name.trim(),
+                category: toDomainCategory(a.category),
+                paid_on: a.paid ? todayISO() : null,
+                boat: boat.boat_name.trim(),
+                membership_no: a.membership_no.trim(),
+                boat_type: boat.boat_type
+            });
+
+            await addCompetitorToCompetition(competitionId, String(created.id));
         }
-
-        const newCompetitor = await addCompetitor({
-            full_name: name.trim(),
-            category: toDomainCat(category),
-            paid_on: paidOn,
-            email: email.trim() || null,
-            phone: phone.trim() || null,
-            boat: boat.trim() || null
-        });
-
-        await addCompetitorToCompetition(
-            competitionId,
-            String(newCompetitor.id)
-        );
 
         setRows(await listCompetitorsForCompetition(competitionId));
-
-        setName("");
-        setEmail("");
-        setPhone("");
-        setNotes("");
-        if (!keepBoat) setBoat("");
+        setBoat(emptyBoat);
     }
 
-    function save(keepBoat: boolean) {
-        if (!name.trim()) return alert("Full Name is required");
-        if (!paidOn) return alert("Payment Date is required");
+    /* ----------------------------- Edit / Add existing ----------------------------- */
 
-        const dup = duplicateOnCreate;
-        if (dup) {
-            setConfirm({
-                message: `A competitor named "${dup.full_name}" already exists. Continue anyway?`,
-                onYes: async () => {
-                    setConfirm(null);
-                    await doAdd(keepBoat);
-                },
-                onNo: () => setConfirm(null)
-            });
-            return;
-        }
-
-        doAdd(keepBoat);
-    }
-
-    // -----------------------------------
-    // Delete competitors
-    // -----------------------------------
-    async function removeSelected() {
-        if (selected.size === 0) return alert("Select at least one");
-        if (!confirmWindow("Delete selected competitors?")) return;
-
-        await deleteCompetitors(Array.from(selected).map(id => String(id)));
-
-        if (competitionId) {
-            setRows(await listCompetitorsForCompetition(competitionId));
-        }
-
-        setSelected(new Set());
-    }
-
-    // -----------------------------------
-    // Edit competitor
-    // -----------------------------------
-    function startEdit(r: Competitor) {
-        if (editingId && editingId !== r.id) {
-            if (!confirmWindow("Discard current changes?")) return;
-        }
-
-        setEditingId(r.id);
+    const startEdit = (r: Competitor) => {
+        setEditingId(String(r.id));
+        setAddingToBoat(null);
         setDraft({
             full_name: r.full_name,
-            category: toDisplayCat(r.category as DomainCategory),
-            paid_on: r.paid_on?.slice(0, 10) || "",
-            email: r.email || "",
-            phone: r.phone || "",
-            boat: r.boat || ""
+            category: toDisplayCategory(r.category),
+            membership_no: r.membership_no || "",
+            paid: !!r.paid_on,
+            paid_on: r.paid_on
         });
-    }
+    };
 
-    function cancelEdit() {
+    const startAddToBoat = (boatName: string) => {
         setEditingId(null);
+        setAddingToBoat(boatName);
+        setDraft({
+            full_name: "",
+            category: "Adult",
+            membership_no: "",
+            paid: false,
+            paid_on: null
+        });
+    };
+
+    const cancelEdit = () => {
+        setEditingId(null);
+        setAddingToBoat(null);
         setDraft(null);
-    }
+    };
 
-    function findDuplicateForEdit(d: any, id: string | number | null) {
-        if (!d?.full_name) return null;
-        const n = normName(d.full_name);
-        return rows.find(
-            (r) => String(r.id) !== String(id) && normName(r.full_name) === n
-        );
-    }
+    const saveExisting = async (id: string | number) => {
+        if (!draft) return;
 
-    async function doSaveEdit() {
-        if (!editingId || !draft) return;
-
-        await updateCompetitor(String(editingId), {
+        await updateCompetitor(id, {
             full_name: draft.full_name.trim(),
-            category: toDomainCat(draft.category),
-            paid_on: draft.paid_on,
-            email: draft.email.trim() || null,
-            phone: draft.phone.trim() || null,
-            boat: draft.boat.trim() || null
+            category: toDomainCategory(draft.category),
+            membership_no: draft.membership_no.trim(),
+            paid_on: draft.paid ? draft.paid_on ?? todayISO() : null
         });
 
         if (competitionId) {
             setRows(await listCompetitorsForCompetition(competitionId));
         }
 
-        setEditingId(null);
-        setDraft(null);
-    }
+        cancelEdit();
+    };
 
-    function saveEdit() {
-        if (!editingId || !draft) return;
+    const saveNewToBoat = async (boatName: string, boatType: BoatType) => {
+        if (!draft || !competitionId) return;
 
-        const dup = findDuplicateForEdit(draft, editingId);
-        if (dup) {
-            setConfirm({
-                message: "Another competitor already has this name. Continue?",
-                onYes: async () => {
-                    setConfirm(null);
-                    await doSaveEdit();
-                },
-                onNo: () => setConfirm(null)
-            });
-            return;
-        }
+        const created = await addCompetitor({
+            full_name: draft.full_name.trim(),
+            category: toDomainCategory(draft.category),
+            membership_no: draft.membership_no.trim(),
+            paid_on: draft.paid ? todayISO() : null,
+            boat: boatName,
+            boat_type: boatType
+        });
 
-        doSaveEdit();
-    }
+        await addCompetitorToCompetition(competitionId, String(created.id));
+        setRows(await listCompetitorsForCompetition(competitionId));
+        cancelEdit();
+    };
 
-    // -----------------------------------
-    // Search + fee rendering
-    // -----------------------------------
-    const [search, setSearch] = useState("");
+    const removeCompetitor = async (id: string | number) => {
+        if (!confirm("Remove this angler?")) return;
+        await deleteCompetitors([id]);
+        if (competitionId) setRows(await listCompetitorsForCompetition(competitionId));
+    };
 
-    const filtered = rows.filter(
-        (r) =>
-            !search ||
-            [r.full_name, r.email, r.boat]
-                .join(" ")
-                .toLowerCase()
-                .includes(search.toLowerCase())
-    );
+    /* ----------------------------- Group by boat ----------------------------- */
 
-    function feeForDraft(d: typeof draft | null) {
-        if (!d || !settings?.fees?.Adult) return "";
-        const f = computeFee(settings, d.category, d.paid_on);
-        return isFinite(f as any) ? `$${f.toFixed(0)}` : "";
-    }
+    const boats = useMemo(() => {
+        const map = new Map<string, Competitor[]>();
+        rows.forEach(r => {
+            const key = r.boat || "—";
+            if (!map.has(key)) map.set(key, []);
+            map.get(key)!.push(r);
+        });
+        return Array.from(map.entries());
+    }, [rows]);
 
-    // -----------------------------------
-    // RENDER
-    // -----------------------------------
+    /* ========================================================= Render ========================================================= */
+
     return (
         <>
-            {/* Confirm Banner */}
-            {confirm && (
-                <div className="card" style={{ background: "#fff7ed", borderColor: "#fed7aa", marginBottom: 12 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                        <span className="badge" style={{ background: "#fdba74" }}>Warning</span>
-                        <div style={{ flex: 1 }}>{confirm.message}</div>
-                        <div style={{ display: "flex", gap: 8 }}>
-                            <button className="btn" onClick={confirm.onNo}>Cancel</button>
-                            <button className="btn primary" onClick={confirm.onYes}>Continue</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Registration Card */}
+            {/* ================= REGISTRATION ================= */}
             <section className="card">
-                <div
-                    style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        gap: "16px"
-                    }}
-                >
-                    <h2>Competition Registration</h2>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <h2 style={{ margin: 0, flex: 1 }}>Competition Registration</h2>
 
                     <select
-                        value={competitionId || ""}
-                        onChange={(e) => setCompetitionId(e.target.value)}
-                        style={{
-                            padding: "6px 10px",
-                            width: "30%",        // 💡 keeps dropdown compact
-                            minWidth: "220px",   // 💡 prevents too small
-                            maxWidth: "300px",   // 💡 prevents too large
-                            textAlign: "left",         // <-- fixes list alignment
-                        }}
+                        value={competitionId ?? ""}
+                        onChange={e => setCompetitionId(e.target.value || null)}
+                        style={{ maxWidth: 320 }}
                     >
                         <option value="">-- Select Competition --</option>
-                        {competitions
-                            .sort(
-                                (a, b) =>
-                                    new Date(b.starts_at).getTime() -
-                                    new Date(a.starts_at).getTime()   // ← FIXED TS ERROR
-                            )
-                            .map((c) => (
-                                <option key={c.id} value={c.id}>
-                                    {c.name}
-                                </option>
-                            ))}
+                        {competitions.map(c => (
+                            <option key={c.id} value={c.id}>
+                                {c.name}
+                            </option>
+                        ))}
                     </select>
                 </div>
 
+                <h3 style={{ marginTop: 16 }}>Boat Details</h3>
 
-                {/* Form */}
                 <div className="row">
                     <div className="col-6">
-                        <label>Full Name *</label>
                         <input
-                            disabled={!competitionId}
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            placeholder="First Last"
+                            placeholder="Boat / Team"
+                            value={boat.boat_name}
+                            onChange={e =>
+                                setBoat(b => ({ ...b, boat_name: e.target.value }))
+                            }
                         />
-                        {!!duplicateOnCreate && (
-                            <div className="muted" style={{ color: "#b45309", marginTop: 4 }}>
-                                A competitor named <strong>{duplicateOnCreate.full_name}</strong> already exists.
-                            </div>
-                        )}
                     </div>
 
-                    <div className="col-3">
-                        <label>Category *</label>
+                    <div className="col-4">
                         <select
-                            disabled={!competitionId}
-                            value={category}
-                            onChange={(e) => setCategory(e.target.value as DisplayCategory)}
+                            value={boat.boat_type}
+                            onChange={e =>
+                                setBoat(b => ({
+                                    ...b,
+                                    boat_type: e.target.value as BoatType
+                                }))
+                            }
                         >
-                            <option>Adult</option>
-                            <option>Junior</option>
+                            <option>Launch</option>
+                            <option>Trailer</option>
+                            <option>Charter</option>
                         </select>
                     </div>
-
-                    <div className="col-3">
-                        <label>Payment Date *</label>
-                        <input
-                            type="date"
-                            disabled={!competitionId}
-                            value={paidOn}
-                            onChange={(e) => setPaidOn(e.target.value)}
-                        />
-                    </div>
-
-                    <div className="col-6">
-                        <label>Email</label>
-                        <input
-                            disabled={!competitionId}
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            placeholder="name@example.com"
-                        />
-                    </div>
-
-                    <div className="col-3">
-                        <label>Phone</label>
-                        <input
-                            disabled={!competitionId}
-                            value={phone}
-                            onChange={(e) => setPhone(e.target.value)}
-                            placeholder="+64 ..."
-                        />
-                    </div>
-
-                    <div className="col-3">
-                        <label>Boat / Team</label>
-                        <input
-                            disabled={!competitionId}
-                            value={boat}
-                            onChange={(e) => setBoat(e.target.value)}
-                            placeholder="Boat or Team name"
-                        />
-                    </div>
-
-                    <div className="col-12">
-                        <label>Notes (local only)</label>
-                        <textarea
-                            disabled={!competitionId}
-                            value={notes}
-                            onChange={(e) => setNotes(e.target.value)}
-                        />
-                    </div>
                 </div>
 
-                {/* Buttons */}
-                <div className="actions" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px 12px", marginTop: 6 }}>
-                    <span className="pill">
-                        Fee:
-                        <strong style={{ marginLeft: 6 }}>
-                            {fee != null ? `$${fee.toFixed(0)}` : "$0"}
-                        </strong>
-                    </span>
+                <h3 style={{ marginTop: 16 }}>Anglers</h3>
 
-                    <div style={{ flex: "1 1 auto" }} />
-
-                    <button disabled={!competitionId} className="btn primary" onClick={() => save(false)}>
-                        Register Competitor
-                    </button>
-
-                    <button disabled={!competitionId} className="btn accent" onClick={() => save(true)}>
-                        Save & Register Another
-                    </button>
-
-                    <button className="btn" onClick={() => {
-                        setName(""); setEmail(""); setPhone(""); setBoat(""); setNotes("");
-                    }}>
-                        Clear
-                    </button>
-
-                    {settings?.fees?.Adult && (
-                        <div style={{ flexBasis: "100%", marginTop: 6, lineHeight: 1.3 }}>
-                            Early-bird cutoff:
-                            <span className="badge">{formatNZ(settings.earlyBirdCutoff)}</span>
-                            — Adult ${settings.fees.Adult.early} → ${settings.fees.Adult.standard} after;
-                            Junior ${settings.fees.Junior.early} → ${settings.fees.Junior.standard}.
+                {boat.anglers.map((a, i) => (
+                    <div key={i} className="row" style={{ marginBottom: 8 }}>
+                        <div className="col-6">
+                            <input
+                                placeholder="Full name"
+                                value={a.full_name}
+                                onChange={e =>
+                                    updateAngler(i, { full_name: e.target.value })
+                                }
+                            />
                         </div>
-                    )}
-                </div>
-            </section>
 
-            {/* Registered Competitors */}
-            <section className="card">
-                <h3>Registered Competitors</h3>
+                        <div className="col-2">
+                            <select
+                                value={a.category}
+                                onChange={e =>
+                                    updateAngler(i, {
+                                        category: e.target.value as DisplayCategory
+                                    })
+                                }
+                            >
+                                <option>Adult</option>
+                                <option>Junior</option>
+                            </select>
+                        </div>
 
-                <div className="actions">
-                    <input
-                        placeholder="Search by name / email / boat..."
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                    />
+                        <div className="col-3">
+                            <input
+                                placeholder="Membership No"
+                                value={a.membership_no}
+                                onChange={e =>
+                                    updateAngler(i, { membership_no: e.target.value })
+                                }
+                            />
+                        </div>
 
-                    <button
-                        type="button"
-                        className="btn"
-                        onClick={() =>
-                            setRows((r) =>
-                                [...r].sort((a, b) => a.full_name.localeCompare(b.full_name))
-                            )
-                        }
-                    >
-                        Sort A → Z
-                    </button>
-
-                    <button
-                        type="button"
-                        className="btn danger"
-                        onClick={removeSelected}
-                        disabled={!!editingId}
-                    >
-                        Delete Selected
-                    </button>
-                </div>
-
-                <div style={{ overflow: "auto", marginTop: 10 }}>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>
+                        <div className="col-2">
+                            <div
+                                style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    height: "100%"
+                                }}
+                            >
+                                <label
+                                    style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: 8,
+                                        fontSize: "0.95rem",      // matches inputs/selects
+                                        fontWeight: 500,
+                                        lineHeight: 1,
+                                        cursor: "pointer",
+                                        margin: 0
+                                    }}
+                                >
                                     <input
                                         type="checkbox"
-                                        disabled={!!editingId}
-                                        onChange={(e) => {
-                                            if (e.target.checked)
-                                                setSelected(new Set(filtered.map((x) => x.id)));
-                                            else setSelected(new Set());
+                                        checked={a.paid}
+                                        onChange={e =>
+                                            updateAngler(i, { paid: e.target.checked })
+                                        }
+                                        style={{
+                                            width: 16,
+                                            height: 16,
+                                            margin: 0
                                         }}
                                     />
-                                </th>
-                                <th>Name</th>
-                                <th>Category</th>
-                                <th>Email</th>
-                                <th>Phone</th>
-                                <th>Boat</th>
-                                <th>Payment Date</th>
-                                <th>Fee</th>
-                                <th>Edit</th>
-                            </tr>
-                        </thead>
+                                    Paid
+                                </label>
+                            </div>
+                        </div>
 
-                        <tbody>
-                            {filtered.map((r) => {
-                                const isEditing = editingId === r.id;
-                                const dispCat = toDisplayCat(r.category as DomainCategory);
-                                const feeRow = settings?.fees?.Adult
-                                    ? computeFee(settings, dispCat, r.paid_on)
-                                    : null;
 
-                                if (!isEditing) {
-                                    return (
-                                        <tr key={r.id}>
-                                            <td>
-                                                <input
-                                                    type="checkbox"
-                                                    checked={selected.has(r.id)}
-                                                    onChange={(e) => {
-                                                        const set = new Set(selected);
-                                                        if (e.target.checked) set.add(r.id);
-                                                        else set.delete(r.id);
-                                                        setSelected(set);
-                                                    }}
-                                                />
-                                            </td>
-                                            <td>{r.full_name}</td>
-                                            <td>{dispCat}</td>
-                                            <td>{r.email || ""}</td>
-                                            <td>{r.phone || ""}</td>
-                                            <td>{r.boat || ""}</td>
-                                            <td className="nz-date">{formatNZ(r.paid_on)}</td>
-                                            <td>{feeRow != null ? `$${feeRow.toFixed(0)}` : ""}</td>
-                                            <td>
-                                                <button className="btn" onClick={() => startEdit(r)}>
-                                                    Edit
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    );
-                                }
-
-                                return (
-                                    <tr key={r.id}>
-                                        <td><input type="checkbox" disabled /></td>
-                                        <td>
-                                            <input
-                                                value={draft?.full_name || ""}
-                                                onChange={(e) =>
-                                                    setDraft((d) => ({ ...(d as any), full_name: e.target.value }))
-                                                }
-                                            />
-                                            {!!findDuplicateForEdit(draft, editingId) && (
-                                                <div className="muted" style={{ color: "#b45309", marginTop: 4 }}>
-                                                    Duplicate name detected.
-                                                </div>
-                                            )}
-                                        </td>
-
-                                        <td>
-                                            <select
-                                                value={draft?.category || "Adult"}
-                                                onChange={(e) =>
-                                                    setDraft((d) => ({ ...(d as any), category: e.target.value as DisplayCategory }))
-                                                }
-                                            >
-                                                <option>Adult</option>
-                                                <option>Junior</option>
-                                            </select>
-                                        </td>
-
-                                        <td>
-                                            <input
-                                                value={draft?.email || ""}
-                                                onChange={(e) =>
-                                                    setDraft((d) => ({ ...(d as any), email: e.target.value }))
-                                                }
-                                            />
-                                        </td>
-
-                                        <td>
-                                            <input
-                                                value={draft?.phone || ""}
-                                                onChange={(e) =>
-                                                    setDraft((d) => ({ ...(d as any), phone: e.target.value }))
-                                                }
-                                            />
-                                        </td>
-
-                                        <td>
-                                            <input
-                                                value={draft?.boat || ""}
-                                                onChange={(e) =>
-                                                    setDraft((d) => ({ ...(d as any), boat: e.target.value }))
-                                                }
-                                            />
-                                        </td>
-
-                                        <td>
-                                            <input
-                                                type="date"
-                                                value={draft?.paid_on || todayISO()}
-                                                onChange={(e) =>
-                                                    setDraft((d) => ({ ...(d as any), paid_on: e.target.value }))
-                                                }
-                                            />
-                                        </td>
-
-                                        <td>{feeForDraft(draft)}</td>
-
-                                        <td>
-                                            <button className="btn primary" onClick={saveEdit}>
-                                                Save
-                                            </button>
-                                            <button className="btn" onClick={cancelEdit} style={{ marginLeft: 8 }}>
-                                                Cancel
-                                            </button>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-
-                            {filtered.length === 0 && (
-                                <tr>
-                                    <td colSpan={9} className="muted">No competitors yet.</td>
-                                </tr>
+                        <div className="col-1">
+                            {boat.anglers.length > 1 && (
+                                <button
+                                    className="btn danger small"
+                                    onClick={() => removeAngler(i)}
+                                >
+                                    Remove
+                                </button>
                             )}
-                        </tbody>
-                    </table>
-                </div>
+                        </div>
+                    </div>
+                ))}
+
+                <button className="btn small" onClick={addAngler}>
+                    + Add angler to boat
+                </button>
+
+                {canRegister && (
+                    <div className="actions" style={{ marginTop: 16 }}>
+                        <div style={{ flex: 1 }} />
+                        <button className="btn primary" onClick={registerBoat}>
+                            Register Boat & Anglers
+                        </button>
+                    </div>
+                )}
+            </section>
+
+            {/* ================= REGISTERED BOATS ================= */}
+            <section className="card">
+                <h3>Registered Boats</h3>
+
+                {boats.map(([boatName, anglers]) => {
+                    const open = openBoats.has(boatName);
+                    const boatType = anglers[0].boat_type;
+
+                    return (
+                        <div key={boatName} className="card" style={{ marginTop: 12 }}>
+                            <div
+                                style={{ display: "flex", gap: 12, cursor: "pointer" }}
+                                onClick={() =>
+                                    setOpenBoats(p => {
+                                        const n = new Set(p);
+                                        n.has(boatName) ? n.delete(boatName) : n.add(boatName);
+                                        return n;
+                                    })
+                                }
+                            >
+                                <strong>{open ? "▼" : "▶"} {boatName}</strong>
+                                <span className="badge">{anglers.length} anglers</span>
+                            </div>
+
+                            {open && (
+                                <>
+                                    <table style={{ marginTop: 8 }}>
+                                        <thead>
+                                            <tr>
+                                                <th>Name</th>
+                                                <th>Category</th>
+                                                <th>Member No</th>
+                                                <th>Registered</th>
+                                                <th>Amount</th>
+                                                <th>Paid</th>
+                                                <th>Edit</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {anglers.map(r => {
+                                                const rowId = String(r.id);
+                                                const isEditing = editingId === rowId;
+
+                                                const amount = settings?.fees
+                                                    ? computeFee(
+                                                        settings,
+                                                        toDisplayCategory(r.category),
+                                                        r.paid_on ?? todayISO()
+                                                    )
+                                                    : null;
+
+                                                if (!isEditing) {
+                                                    return (
+                                                        <tr key={rowId}>
+                                                            <td>{r.full_name}</td>
+                                                            <td>{toDisplayCategory(r.category)}</td>
+                                                            <td>{r.membership_no || "—"}</td>
+                                                            <td>{formatDateNZ(r.created_at)}</td>
+                                                            <td>{amount != null ? `$${amount.toFixed(0)}` : ""}</td>
+                                                            <td>{r.paid_on ? "✔" : "✖"}</td>
+                                                            <td>
+                                                                <button className="btn" onClick={() => startEdit(r)}>
+                                                                    Edit
+                                                                </button>
+                                                                <button
+                                                                    className="btn danger"
+                                                                    style={{ marginLeft: 6 }}
+                                                                    onClick={() => removeCompetitor(r.id)}
+                                                                >
+                                                                    Remove
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                }
+
+                                                return (
+                                                    <tr key={rowId}>
+                                                        <td>
+                                                            <input
+                                                                value={draft?.full_name || ""}
+                                                                onChange={e =>
+                                                                    setDraft(d => ({ ...(d as AnglerDraft), full_name: e.target.value }))
+                                                                }
+                                                            />
+                                                        </td>
+                                                        <td>
+                                                            <select
+                                                                value={draft?.category}
+                                                                onChange={e =>
+                                                                    setDraft(d => ({ ...(d as AnglerDraft), category: e.target.value as DisplayCategory }))
+                                                                }
+                                                            >
+                                                                <option>Adult</option>
+                                                                <option>Junior</option>
+                                                            </select>
+                                                        </td>
+                                                        <td>
+                                                            <input
+                                                                value={draft?.membership_no || ""}
+                                                                onChange={e =>
+                                                                    setDraft(d => ({ ...(d as AnglerDraft), membership_no: e.target.value }))
+                                                                }
+                                                            />
+                                                        </td>
+                                                        <td>{formatDateNZ(r.created_at)}</td>
+                                                        <td>{amount != null ? `$${amount.toFixed(0)}` : ""}</td>
+                                                        <td>
+                                                            <label style={{ display: "flex", gap: 6 }}>
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={!!draft?.paid}
+                                                                    onChange={e =>
+                                                                        setDraft(d => ({
+                                                                            ...(d as AnglerDraft),
+                                                                            paid: e.target.checked,
+                                                                            paid_on: e.target.checked ? todayISO() : null
+                                                                        }))
+                                                                    }
+                                                                />
+                                                                Paid
+                                                            </label>
+                                                        </td>
+                                                        <td>
+                                                            <button className="btn primary" onClick={() => saveExisting(r.id)}>
+                                                                Save
+                                                            </button>
+                                                            <button className="btn" onClick={cancelEdit} style={{ marginLeft: 6 }}>
+                                                                Cancel
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+
+                                            {addingToBoat === boatName && draft && (
+                                                <tr>
+                                                    <td colSpan={7}>
+                                                        <button
+                                                            className="btn primary"
+                                                            onClick={() => saveNewToBoat(boatName, boatType)}
+                                                        >
+                                                            Save new angler
+                                                        </button>
+                                                        <button className="btn" style={{ marginLeft: 6 }} onClick={cancelEdit}>
+                                                            Cancel
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+
+                                    {addingToBoat !== boatName && (
+                                        <button
+                                            className="btn small"
+                                            style={{ marginTop: 8 }}
+                                            onClick={() => startAddToBoat(boatName)}
+                                        >
+                                            + Add angler to {boatName}
+                                        </button>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    );
+                })}
             </section>
         </>
     );
-}
-
-function confirmWindow(msg: string) {
-    return window.confirm(msg);
 }

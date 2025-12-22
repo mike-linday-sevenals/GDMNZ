@@ -20,16 +20,21 @@ export interface Species {
     is_measure?: boolean
 }
 
-export interface Competitor {
-    id: string | number
-    full_name: string
-    category: 'adult' | 'junior'
-    boat?: string | null
-    email?: string | null
-    phone?: string | null
-    paid_on: string
-    created_at?: string
-}
+export type Competitor = {
+    id: string;
+    created_at: string;
+
+    full_name: string;
+    category: "adult" | "junior";
+    paid_on: string | null;
+    boat: string;
+
+    // ✅ ADD THESE
+    membership_no: string;
+    boat_type: "Launch" | "Trailer" | "Charter";
+
+};
+
 
 export interface FishJoined {
     id: string | number
