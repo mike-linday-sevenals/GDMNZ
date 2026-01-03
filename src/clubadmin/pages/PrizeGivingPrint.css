@@ -1,0 +1,166 @@
+/* ======================================================================
+   Prize Giving — Print Layout
+   Document-style, single-page friendly
+   ====================================================================== */
+
+/* -------------------------------
+   BASE PRINT RESET
+-------------------------------- */
+@media print {
+    @page {
+        size: A4 portrait;
+        margin: 10mm; /* tighter margins to fit one page */
+    }
+
+    body {
+        margin: 0;
+        padding: 0;
+        background: white;
+        color: #000;
+        font-size: 11px;
+        line-height: 1.25;
+    }
+
+    /* Remove shadows, colours, UI chrome */
+    * {
+        box-shadow: none !important;
+        background: transparent !important;
+    }
+}
+
+/* -------------------------------
+   HIDE WEB UI ELEMENTS
+-------------------------------- */
+@media print {
+    header,
+    nav,
+    .tabs,
+    .btn,
+    button,
+    select,
+    .footer,
+    .react-footer,
+    .admin-tabs,
+    .header-actions,
+    .no-print {
+        display: none !important;
+    }
+}
+
+/* -------------------------------
+   CLUB HEADING (KEEP)
+-------------------------------- */
+@media print {
+    .header,
+    .club-header,
+    .organisation-header {
+        display: block !important;
+        margin-bottom: 6mm;
+    }
+
+        .organisation-header h1,
+        .club-name {
+            font-size: 16px;
+            font-weight: 700;
+            margin: 0 0 2mm 0;
+        }
+}
+
+/* -------------------------------
+   PAGE TITLE
+-------------------------------- */
+@media print {
+    h2 {
+        font-size: 14px;
+        font-weight: 700;
+        margin: 0 0 6mm 0;
+    }
+}
+
+/* -------------------------------
+   SPECIES SECTIONS
+-------------------------------- */
+@media print {
+    section.card {
+        margin: 0 0 6mm 0;
+        padding: 0;
+        border: none;
+        page-break-inside: avoid;
+    }
+
+    h3 {
+        font-size: 12px;
+        font-weight: 700;
+        margin: 4mm 0 2mm 0;
+    }
+}
+
+/* -------------------------------
+   TABLE STYLING (DOCUMENT STYLE)
+-------------------------------- */
+@media print {
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 4mm;
+    }
+
+    thead th {
+        font-size: 10px;
+        font-weight: 700;
+        border-bottom: 1px solid #000;
+        padding: 2px 4px;
+        text-align: left;
+    }
+
+    tbody td {
+        font-size: 10px;
+        padding: 2px 4px;
+        border-bottom: 0.5px solid #ccc;
+        vertical-align: top;
+    }
+
+    tbody tr:last-child td {
+        border-bottom: none;
+    }
+}
+
+/* -------------------------------
+   PLACE COLUMN
+-------------------------------- */
+@media print {
+    td:first-child,
+    th:first-child {
+        width: 28px;
+        text-align: center;
+        font-weight: 700;
+    }
+}
+
+/* -------------------------------
+   EMPTY / MUTED ROWS
+-------------------------------- */
+@media print {
+    .muted {
+        color: #666 !important;
+        font-style: italic;
+    }
+}
+
+/* -------------------------------
+   SPACING COMPRESSION
+-------------------------------- */
+@media print {
+    p {
+        margin: 0 0 2mm 0;
+    }
+}
+
+/* -------------------------------
+   FINAL SAFETY: FORCE SINGLE PAGE
+-------------------------------- */
+@media print {
+    body {
+        overflow: hidden;
+    }
+}

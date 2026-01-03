@@ -1,12 +1,12 @@
 ﻿console.log("🔥 RESULTS FILE LOADED 🔥");
 
 import { useEffect, useMemo, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 
 import {
     fetchSettings,
     listFishJoinedForCompetition,
-    listSpecies,
+    listCompetitionSpecies,
     getCompetition,
     listCompetitions
 } from "@/services/api";
@@ -21,6 +21,7 @@ type Settings = {
 };
 
 export default function Results() {
+    const { organisationId } = useParams<{ organisationId: string }>();
     const location = useLocation();
     const navigate = useNavigate();
 
@@ -38,14 +39,16 @@ export default function Results() {
     const [loading, setLoading] = useState(false);
 
     // ------------------------------------------------------------------
-    // LOAD COMPETITIONS FOR DROPDOWN
+    // LOAD COMPETITIONS (ORG-SCOPED)
     // ------------------------------------------------------------------
     useEffect(() => {
+        if (!organisationId) return;
+
         (async () => {
-            const list = await listCompetitions();
+            const list = await listCompetitions(organisationId);
             setCompetitions(list || []);
         })();
-    }, []);
+    }, [organisationId]);
 
     // ------------------------------------------------------------------
     // LOAD RESULTS WHEN COMPETITION CHANGES
@@ -53,54 +56,56 @@ export default function Results() {
     useEffect(() => {
         console.log("[Results] competitionId changed:", competitionId);
 
-        // reset state
         setCompetitionName("");
         setSettings(null);
         setRows([]);
         setSpecies([]);
         setLoading(false);
 
-        if (!competitionId) return;
+        if (!organisationId || !competitionId) return;
 
         setLoading(true);
 
         (async () => {
             try {
-                const comp = await getCompetition({ id: competitionId });
+                const comp = await getCompetition(
+                    organisationId,
+                    competitionId
+                );
 
-                const [st, fish, sp] = await Promise.all([
+                const [st, fish, spRows] = await Promise.all([
                     fetchSettings(),
                     listFishJoinedForCompetition(competitionId),
-                    listSpecies()
+                    listCompetitionSpecies(organisationId, competitionId)
                 ]);
 
                 setCompetitionName(comp?.name || "");
                 setSettings(st);
                 setRows(fish ?? []);
-                setSpecies(sp ?? []);
+                setSpecies(spRows.map(r => r.species));
             } catch (err) {
                 console.error("[Results] failed to load", err);
             } finally {
                 setLoading(false);
             }
         })();
-    }, [competitionId]);
+    }, [organisationId, competitionId]);
 
     // ------------------------------------------------------------------
-    // ACTIVE SPECIES
+    // ACTIVE SPECIES FILTER
     // ------------------------------------------------------------------
     const activeSet = useMemo(() => {
         if (!settings) return null;
 
         const ids = Array.isArray(settings.activeSpeciesIds)
             ? settings.activeSpeciesIds
-            : species.map((s) => s.id);
+            : species.map(s => s.id);
 
         return new Set(ids);
     }, [settings, species]);
 
     const filtered = useMemo(() => {
-        return rows.filter((r) => {
+        return rows.filter(r => {
             const sid = r.species?.id;
             return !activeSet || sid == null || activeSet.has(sid);
         });
@@ -111,7 +116,7 @@ export default function Results() {
     // ------------------------------------------------------------------
     function onCompetitionChange(id: string) {
         if (!id) return;
-        navigate(`/results?competition=${id}`);
+        navigate(`/clubadmin/${organisationId}/results?competition=${id}`);
     }
 
     // ------------------------------------------------------------------
@@ -119,11 +124,19 @@ export default function Results() {
     // ------------------------------------------------------------------
     return (
         <section className="card">
-            {/* 🔽 COMPETITION SELECTOR (NEW) */}
-            <div style={{ marginBottom: 16 }}>
-                <label className="muted" style={{ display: "block", marginBottom: 6 }}>
-                    Select competition results
-                </label>
+            {/* HEADER */}
+            <div
+                style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 16,
+                    marginBottom: 16,
+                }}
+            >
+                <h2 style={{ margin: 0 }}>
+                    Results {competitionName && <>— {competitionName}</>}
+                </h2>
 
                 <select
                     value={competitionId ?? ""}
@@ -132,6 +145,7 @@ export default function Results() {
                 >
                     <option value="">— Select competition —</option>
                     {competitions
+                        .slice()
                         .sort(
                             (a, b) =>
                                 new Date(b.starts_at).getTime() -
@@ -145,18 +159,13 @@ export default function Results() {
                 </select>
             </div>
 
-            {/* TITLE */}
-            <h2>
-                Results {competitionName && <>— {competitionName}</>}
-            </h2>
-
             {loading && <p className="muted">Loading results…</p>}
 
             {!loading && competitionId && rows.length === 0 && (
                 <p className="muted">No results for this competition.</p>
             )}
 
-            {/* SIMPLE TABLE (confirmed working) */}
+            {/* RESULTS TABLE */}
             {filtered.length > 0 && (
                 <div style={{ overflow: "auto", marginTop: 10 }}>
                     <table>

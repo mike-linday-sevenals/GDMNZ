@@ -1,13 +1,13 @@
 import { NavLink, Outlet } from "react-router-dom";
 
 const TABS = [
-    { to: "/", label: "Register", end: true },
-    { to: "/submit", label: "Submit Fish" },
-    { to: "/results", label: "Results" },
-    { to: "/prizes", label: "Prizes" },
-    { to: "/prizegiving", label: "Prize Giving" },
-    { to: "/admin", label: "Admin" },
-    { to: "/data", label: "Import/Export" }
+    { to: "register", label: "Register" },
+    { to: "submit", label: "Submit Fish" },
+    { to: "results", label: "Results" },
+    { to: "prizes", label: "Prizes" },
+    { to: "prizegiving", label: "Prize Giving" },
+    { to: "admin", label: "Admin" },
+    { to: "data", label: "Import/Export" }
 ];
 
 export default function AdminLayout() {
@@ -22,13 +22,21 @@ export default function AdminLayout() {
                         />
                         <div>
                             <h1>WOSC — Labour Weekend</h1>
-                            <div className="sub">Registration, Submit Fish, Results & Prizegiving</div>
+                            <div className="sub">
+                                Registration, Submit Fish, Results & Prizegiving
+                            </div>
                         </div>
                     </div>
+
                     <nav className="tabs">
                         {TABS.map(t => (
-                            <NavLink key={t.to} to={t.to} end={t.end as any}
-                                className={({ isActive }) => (isActive ? "active" : "")}>
+                            <NavLink
+                                key={t.to}
+                                to={t.to}
+                                className={({ isActive }) =>
+                                    isActive ? "active" : ""
+                                }
+                            >
                                 {t.label}
                             </NavLink>
                         ))}
@@ -39,7 +47,8 @@ export default function AdminLayout() {
             <main className="wrap main">
                 <Outlet />
                 <div className="footer">
-                    React app. Competitors &amp; fish: Supabase (if configured) or local-only fallback. Prizes/branding local for now.
+                    React app. Competitors &amp; fish: Supabase (if configured)
+                    or local-only fallback. Prizes/branding local for now.
                 </div>
             </main>
         </>

@@ -52,6 +52,12 @@ summary{cursor:pointer;color:#111}
 .flex{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 @media(max-width:900px){.col-6,.col-4,.col-3,.col-8{grid-column:span 12} .two,.three{grid-template-columns:1fr}}
 
+/* Buttons rendered as links should not look like links */
+a.btn {
+    text-decoration: none;
+}
+
+
 /* =========================================================
    Admin layout polish (alignment + cleanup)
    ========================================================= */
@@ -235,3 +241,254 @@ summary{cursor:pointer;color:#111}
 .actions-row {
     margin-top: 12px;
 }
+/* =========================
+   Species selection grid
+   ========================= */
+
+.species-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 10px;
+}
+
+/* Individual tile */
+.species-tile {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 44px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: #fff;
+    font-size: 13px;
+    cursor: pointer;
+    white-space: nowrap; /* 👈 no wrapping */
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+    /* Hide ugly checkbox, keep it accessible */
+    .species-tile input {
+        width: auto;
+    }
+
+    /* Label text */
+    .species-tile span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* Selected state */
+    .species-tile.active {
+        border-color: var(--accent);
+        background: #eaf6ff;
+    }
+
+/* Mobile fallback */
+@media (max-width: 600px) {
+    .species-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+/* =========================================================
+   Submit Catch – spacing & layout polish
+   ========================================================= */
+
+/* Give the submit card a little more air */
+section.card {
+    padding: 20px 24px;
+}
+
+    /* Submit form grid: fewer columns, more breathing room */
+    section.card .form-grid {
+        grid-template-columns: repeat(5, minmax(140px, 1fr));
+        gap: 16px 20px;
+        margin-top: 16px;
+    }
+
+    /* Individual field rhythm */
+    section.card .field {
+        gap: 6px;
+    }
+
+        /* Label clarity */
+        section.card .field > label {
+            font-size: 12px;
+            margin-bottom: 2px;
+        }
+
+    /* Inputs feel less cramped */
+    section.card input,
+    section.card select {
+        height: 38px;
+        padding: 6px 10px;
+        font-size: 14px;
+    }
+
+    /* Divider before actions */
+    section.card hr {
+        margin: 20px 0;
+        border: none;
+        border-top: 1px solid var(--border);
+    }
+
+    /* Actions row: visually separated */
+    section.card .actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-top: 24px;
+        padding-top: 16px;
+        border-top: 1px solid var(--border);
+    }
+
+    /* Checkbox spacing */
+    section.card .switch {
+        gap: 8px;
+        font-size: 13px;
+        color: var(--text-muted);
+    }
+
+    /* Button alignment consistency */
+    section.card .actions .btn {
+        height: 38px;
+    }
+
+/* Responsive: stack form nicely on small screens */
+@media (max-width: 900px) {
+    section.card .form-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    section.card .actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+        section.card .actions .btn {
+            width: 100%;
+        }
+}
+/* =========================================================
+   Modal system (used by Submit Catch angler/boat picker)
+   ========================================================= */
+
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.45); /* dark translucent */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+    /* Modal card */
+    .modal-backdrop > .card {
+        width: 100%;
+        max-width: 960px;
+        max-height: 85vh;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        padding: 20px 24px;
+    }
+
+    /* Modal header */
+    .modal-backdrop h3 {
+        margin: 0 0 12px;
+    }
+
+    /* Search input spacing */
+    .modal-backdrop input[type="text"] {
+        margin-bottom: 12px;
+    }
+
+/* Two-column list area */
+.modal-lists {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    flex: 1;
+    overflow: hidden;
+}
+
+/* Scrollable columns */
+.modal-list {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 8px;
+    overflow-y: auto;
+    background: #fff;
+}
+
+/* List rows */
+.modal-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+    .modal-row:hover {
+        background: var(--muted);
+    }
+
+    .modal-row.active {
+        background: #eaf6ff;
+        outline: 2px solid var(--accent);
+    }
+
+/* Modal actions pinned to bottom */
+.modal-actions {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding-top: 12px;
+    margin-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+/* Mobile */
+@media (max-width: 700px) {
+    .modal-lists {
+        grid-template-columns: 1fr;
+    }
+}
+/* =========================================================
+   Modal backdrop + wrapper card
+   ========================================================= */
+
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.55); /* darker than before */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+.modal-shell {
+    background: var(--card);
+    border-radius: 18px;
+    border: 1px solid var(--border);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+    padding: 16px;
+    max-width: 980px;
+    width: calc(100% - 40px);
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+}
+    .modal-shell .modal-list {
+        background: #fff;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+    }
+    .modal-shell h3 {
+        margin-top: 0;
+    }

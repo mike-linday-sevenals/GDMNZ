@@ -2,7 +2,7 @@
 
 import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { listCompetitions } from "@/services/api";
+import { listPublicCompetitions } from "@/services/api";
 import logo from "@/images/GDMNZ_logo.png";
 
 export default function SiteLayout() {
@@ -12,11 +12,11 @@ export default function SiteLayout() {
     const [competitions, setCompetitions] = useState<any[]>([]);
     const [selectedComp, setSelectedComp] = useState<string>("");
 
-    // Load competitions once
+    // Load PUBLIC competitions once
     useEffect(() => {
         (async () => {
             try {
-                const comps = await listCompetitions();
+                const comps = await listPublicCompetitions();
                 setCompetitions(comps || []);
             } catch (err) {
                 console.error("Failed to load competitions", err);
@@ -31,11 +31,10 @@ export default function SiteLayout() {
         setSelectedComp(id);
     }, [location.search]);
 
-    // Handle dropdown selection
     function handleSelect(id: string) {
         setSelectedComp(id);
         if (id) navigate(`/results?competition=${id}`);
-        else navigate("/results");   // <-- clears the results screen
+        else navigate("/results");
     }
 
     return (
@@ -71,7 +70,7 @@ export default function SiteLayout() {
                         <span className="sr-only">Game Day Manager NZ</span>
                     </Link>
 
-                    {/* Competition Selector */}
+                    {/* Public nav */}
                     <nav
                         className="tabs"
                         style={{

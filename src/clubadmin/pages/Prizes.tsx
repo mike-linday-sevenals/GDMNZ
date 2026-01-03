@@ -1,18 +1,19 @@
-// src/pages/Prizes.tsx
 import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
+
 import {
     listCompetitions,
     listCompetitionSpecies,
+    getCompetition
 } from "@/services/api";
+
 import {
     listPrizesForCompetition,
     upsertPrize,
     type PrizeRow,
 } from "@/services/prizes";
+
 import { listSponsors } from "@/services/sponsors";
-
-
-
 
 /* ------------------------------------------------------------------ */
 /* Types */
@@ -32,10 +33,15 @@ type Sponsor = {
     name: string;
 };
 
+type PrizeMode = "combined" | "split";
+type PrizeCategory = "combined" | "junior" | "adult";
+
 /* ------------------------------------------------------------------ */
 /* Page */
 /* ------------------------------------------------------------------ */
 export default function Prizes() {
+    const { organisationId } = useParams<{ organisationId: string }>();
+
     const [competitions, setCompetitions] = useState<Competition[]>([]);
     const [competitionId, setCompetitionId] = useState<string>("");
 
@@ -43,16 +49,22 @@ export default function Prizes() {
     const [prizes, setPrizes] = useState<PrizeRow[]>([]);
     const [sponsors, setSponsors] = useState<Sponsor[]>([]);
 
+    const [prizeMode, setPrizeMode] = useState<PrizeMode>("combined");
+    const [activeCategory, setActiveCategory] =
+        useState<"junior" | "adult">("adult");
+
     const [loading, setLoading] = useState(true);
     const [savingId, setSavingId] = useState<string | null>(null);
 
     /* -------------------------------------------------- */
-    /* Load competitions + sponsors */
+    /* Load competitions + sponsors (ORG SCOPED) */
     /* -------------------------------------------------- */
     useEffect(() => {
+        if (!organisationId) return;
+
         (async () => {
             const [comps, sps] = await Promise.all([
-                listCompetitions(),
+                listCompetitions(organisationId),
                 listSponsors(),
             ]);
 
@@ -65,27 +77,38 @@ export default function Prizes() {
                 setLoading(false);
             }
         })();
-    }, []);
+    }, [organisationId]);
 
     /* -------------------------------------------------- */
-    /* Load species + prizes */
+    /* Load prize mode + species + prizes */
     /* -------------------------------------------------- */
     useEffect(() => {
-        if (!competitionId) return;
+        if (!organisationId || !competitionId) return;
 
         (async () => {
             setLoading(true);
 
-            const [spRows, prizeRows] = await Promise.all([
-                listCompetitionSpecies(competitionId),
-                listPrizesForCompetition(competitionId),
+            const [comp, spRows, prizeRows] = await Promise.all([
+                getCompetition(organisationId, competitionId),
+                listCompetitionSpecies(organisationId, competitionId),
+                listPrizesForCompetition(organisationId, competitionId),
             ]);
+
+            setPrizeMode(
+                comp.prize_mode?.name === "split" ? "split" : "combined"
+            );
 
             setSpecies(spRows.map((r: any) => r.species));
             setPrizes(prizeRows);
             setLoading(false);
         })();
-    }, [competitionId]);
+    }, [organisationId, competitionId]);
+
+    /* -------------------------------------------------- */
+    /* Helpers */
+    /* -------------------------------------------------- */
+    const currentCategory: PrizeCategory =
+        prizeMode === "combined" ? "combined" : activeCategory;
 
     /* -------------------------------------------------- */
     /* Save prize */
@@ -105,16 +128,17 @@ export default function Prizes() {
             species_id: p.species_id,
             rank: p.rank,
             label: p.label,
-            for_category: "combined",
             sponsor_id: p.sponsor_id,
+            for_category: currentCategory,
         });
 
-        setPrizes(await listPrizesForCompetition(competitionId));
+        setPrizes(
+            await listPrizesForCompetition(organisationId!, competitionId));
         setSavingId(null);
     }
 
     /* -------------------------------------------------- */
-    /* Remove prize (soft delete) */
+    /* Remove prize (hard delete or soft handled in API) */
     /* -------------------------------------------------- */
     async function removePrize(p: PrizeRow) {
         if (!confirm("Remove this prize?")) return;
@@ -122,17 +146,14 @@ export default function Prizes() {
         setSavingId(p.id);
 
         await upsertPrize({
-            id: p.id,
-            competition_id: competitionId,
-            species_id: p.species_id,
-            rank: p.rank,
-            label: p.label,
-            for_category: "combined",
-            sponsor_id: p.sponsor_id,
-        });
+            ...p,
+            for_category: p.for_category,
+            is_deleted: true, // assumes soft delete support
+        } as any);
 
+        setPrizes(
+            await listPrizesForCompetition(organisationId!, competitionId));
 
-        setPrizes(await listPrizesForCompetition(competitionId));
         setSavingId(null);
     }
 
@@ -153,35 +174,91 @@ export default function Prizes() {
     /* -------------------------------------------------- */
     return (
         <section className="card">
-            <h2 style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
-                <span>Prizes</span>
+            {/* ================= HEADER ================= */}
+            <div
+                style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    marginBottom: 12,
+                    flexWrap: "wrap",
+                }}
+            >
+                <h2 style={{ margin: 0, flex: 1 }}>Prizes</h2>
 
+                {/* ---------- Prize Mode Label ---------- */}
+                <div className="muted" style={{ whiteSpace: "nowrap" }}>
+                    Prize Mode:
+                </div>
+
+                {/* ---------- Combined / Split Toggle ---------- */}
+                {prizeMode === "combined" ? (
+                    <strong>Combined</strong>
+                ) : (
+                    <div style={{ display: "flex", gap: 4 }}>
+                        <button
+                            type="button"
+                            className={
+                                activeCategory === "junior"
+                                    ? "btn"
+                                    : "btn btn-secondary"
+                            }
+                            onClick={() => setActiveCategory("junior")}
+                        >
+                            Junior
+                        </button>
+
+                        <button
+                            type="button"
+                            className={
+                                activeCategory === "adult"
+                                    ? "btn"
+                                    : "btn btn-secondary"
+                            }
+                            onClick={() => setActiveCategory("adult")}
+                        >
+                            Adult
+                        </button>
+                    </div>
+                )}
+
+                {/* ---------- Competition Selector ---------- */}
                 <select
                     value={competitionId}
-                    onChange={(e) => setCompetitionId(e.target.value)}
-                    style={{
-                        padding: "6px 10px",
-                        width: "30%",
-                        minWidth: "220px",
-                        maxWidth: "300px",
-                        textAlign: "left"
+                    onChange={(e) => {
+                        setCompetitionId(e.target.value);
+
+                        // 🔑 Reset category when switching competitions
+                        if (prizeMode === "split") {
+                            setActiveCategory("adult");
+                        }
                     }}
+                    style={{ maxWidth: 320 }}
                 >
+                    <option value="">-- Select Competition --</option>
                     {competitions.map((c) => (
                         <option key={c.id} value={c.id}>
                             {c.name}
                         </option>
                     ))}
                 </select>
-            </h2>
+            </div>
 
+
+            {/* ================= SPECIES ================= */}
             {species.map((s) => {
                 const rows = prizes
-                    .filter((p) => p.species_id === s.id)
+                    .filter(
+                        (p) =>
+                            p.species_id === s.id &&
+                            p.for_category === currentCategory
+                    )
                     .sort((a, b) => a.rank - b.rank);
 
                 const nextRank =
-                    rows.length === 0 ? 1 : Math.max(...rows.map((r) => r.rank)) + 1;
+                    rows.length === 0
+                        ? 1
+                        : Math.max(...rows.map((r) => r.rank)) + 1;
 
                 return (
                     <section key={s.id} className="card">
@@ -193,7 +270,16 @@ export default function Prizes() {
                                 marginBottom: 8,
                             }}
                         >
-                            <h3>{s.name}</h3>
+                            <h3>
+                                {s.name}
+                                {prizeMode === "split" && (
+                                    <span className="muted">
+                                        {" "}
+                                        — {activeCategory}
+                                    </span>
+                                )}
+                            </h3>
+
                             <button
                                 className="btn"
                                 onClick={() =>
@@ -218,7 +304,6 @@ export default function Prizes() {
                                     <th></th>
                                 </tr>
                             </thead>
-
                             <tbody>
                                 {rows.map((p) => (
                                     <tr key={p.id}>
@@ -231,7 +316,13 @@ export default function Prizes() {
                                                     setPrizes((prev) =>
                                                         prev.map((x) =>
                                                             x.id === p.id
-                                                                ? { ...x, label: e.target.value }
+                                                                ? {
+                                                                    ...x,
+                                                                    label:
+                                                                        e
+                                                                            .target
+                                                                            .value,
+                                                                }
                                                                 : x
                                                         )
                                                     )
@@ -239,10 +330,12 @@ export default function Prizes() {
                                                 onBlur={() =>
                                                     savePrize({
                                                         id: p.id,
-                                                        species_id: p.species_id,
+                                                        species_id:
+                                                            p.species_id,
                                                         rank: p.rank,
                                                         label: p.label,
-                                                        sponsor_id: p.sponsor_id,
+                                                        sponsor_id:
+                                                            p.sponsor_id,
                                                     })
                                                 }
                                             />
@@ -254,16 +347,24 @@ export default function Prizes() {
                                                 onChange={(e) =>
                                                     savePrize({
                                                         id: p.id,
-                                                        species_id: p.species_id,
+                                                        species_id:
+                                                            p.species_id,
                                                         rank: p.rank,
                                                         label: p.label,
-                                                        sponsor_id: e.target.value || null,
+                                                        sponsor_id:
+                                                            e.target.value ||
+                                                            null,
                                                     })
                                                 }
                                             >
-                                                <option value="">— Select sponsor —</option>
+                                                <option value="">
+                                                    — Select sponsor —
+                                                </option>
                                                 {sponsors.map((sp) => (
-                                                    <option key={sp.id} value={sp.id}>
+                                                    <option
+                                                        key={sp.id}
+                                                        value={sp.id}
+                                                    >
                                                         {sp.name}
                                                     </option>
                                                 ))}
