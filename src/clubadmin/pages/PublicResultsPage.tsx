@@ -45,6 +45,10 @@ function formatDayLabel(dateStr: string) {
     });
 }
 
+function capitalize(s: string) {
+    return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 // ============================================================================
 // PAGE
 // ============================================================================
@@ -68,9 +72,27 @@ export default function PublicResultsPage() {
         useState<PublicCompetition | null>(null);
 
     const [allResults, setAllResults] = useState<PublicResultRow[]>([]);
+
+    // filters
     const [day, setDay] = useState<number | null>(null);
     const [species, setSpecies] = useState<string | null>(null);
-    const [loading, setLoading] = useState(false);
+    const [category, setCategory] =
+        useState<"adult" | "junior" | null>(null);
+
+    const [loadingCompetition, setLoadingCompetition] = useState(false);
+    const [loadingResults, setLoadingResults] = useState(false);
+
+    // =========================================================================
+    // RESET FILTERS WHEN SLUG CHANGES
+    // =========================================================================
+
+    useEffect(() => {
+        setDay(null);
+        setSpecies(null);
+        setCategory(null);
+        setAllResults([]);
+        setCompetition(null);
+    }, [slug]);
 
     // =========================================================================
     // LOAD ORGANISATIONS
@@ -129,7 +151,7 @@ export default function PublicResultsPage() {
     useEffect(() => {
         if (!slug) return;
 
-        setLoading(true);
+        setLoadingCompetition(true);
 
         (async () => {
             try {
@@ -138,53 +160,64 @@ export default function PublicResultsPage() {
             } catch {
                 setCompetition(null);
             } finally {
-                setLoading(false);
+                setLoadingCompetition(false);
             }
         })();
     }, [slug]);
 
     // =========================================================================
-    // LOAD ALL RESULTS (ONCE)
+    // LOAD RESULTS
     // =========================================================================
 
     useEffect(() => {
-        if (!slug) return;
+        if (!slug || !competition) return;
+
+        setLoadingResults(true);
 
         (async () => {
-            const rows = await getPublicResultsBySlug(slug, null);
-            setAllResults(rows);
+            try {
+                const rows = await getPublicResultsBySlug(slug, null);
+                setAllResults(rows);
+            } finally {
+                setLoadingResults(false);
+            }
         })();
-    }, [slug]);
+    }, [slug, competition]);
 
     // =========================================================================
-    // DERIVED DATA
+    // DERIVED FILTER OPTIONS
     // =========================================================================
 
-    const dayMap = useMemo(() => {
+    const dayOptions = useMemo(() => {
         const map = new Map<number, string>();
         allResults.forEach(r => {
             if (!map.has(r.day)) map.set(r.day, r.day_date);
         });
-        return map;
+        return Array.from(map.entries()).sort((a, b) => a[0] - b[0]);
     }, [allResults]);
 
-    const availableDays = useMemo(
-        () => Array.from(dayMap.keys()).sort((a, b) => a - b),
-        [dayMap]
-    );
+    const speciesOptions = useMemo(() => {
+        return Array.from(new Set(allResults.map(r => r.species))).sort();
+    }, [allResults]);
 
-    const availableSpecies = useMemo(
-        () => Array.from(new Set(allResults.map(r => r.species))).sort(),
-        [allResults]
-    );
+    const categoryOptions = useMemo(() => {
+        return Array.from(
+            new Set(allResults.map(r => r.category))
+        ) as ("adult" | "junior")[];
+    }, [allResults]);
+
+    // =========================================================================
+    // FILTERED RESULTS
+    // =========================================================================
 
     const filteredResults = useMemo(() => {
         return allResults.filter(r => {
             if (day !== null && r.day !== day) return false;
             if (species && r.species !== species) return false;
+            if (category && r.category !== category) return false;
             return true;
         });
-    }, [allResults, day, species]);
+    }, [allResults, day, species, category]);
 
     // =========================================================================
     // HANDLERS
@@ -199,76 +232,99 @@ export default function PublicResultsPage() {
     // =========================================================================
     // RENDER — RESULTS MODE
     // =========================================================================
-
     if (slug) {
-        if (loading) return <p>Loading results…</p>;
-        if (!competition) return <p>Competition not found</p>;
+        if (loadingCompetition || loadingResults) {
+            return <p>Loading results…</p>;
+        }
+
+        if (!competition) {
+            return <p>Competition not found</p>;
+        }
 
         return (
             <div className="wrap" style={{ paddingTop: 12 }}>
-                <h1 style={{ marginBottom: 6 }}>{competition.name}</h1>
+                {/* TITLE */}
+                <h1 style={{ marginBottom: 6 }}>
+                    {competition.name}
+                </h1>
 
-                <p style={{ marginBottom: 12 }}>
-                    Prize mode:{" "}
-                    <strong>{competition.prize_mode?.name ?? "Unknown"}</strong>
-                </p>
+                {/* META ROW: prize mode (left) + filters (right) */}
+                <div
+                    style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "baseline",
+                        marginBottom: 12
+                    }}
+                >
+                    {/* LEFT */}
+                    <p style={{ margin: 0 }}>
+                        Prize mode:{" "}
+                        <strong>
+                            {competition.prize_mode?.name ?? "Unknown"}
+                        </strong>
+                    </p>
 
-                {/* FILTER BAR */}
-                {(availableDays.length > 1 || availableSpecies.length > 1) && (
+                    {/* RIGHT — FILTERS */}
                     <div
                         style={{
                             display: "flex",
-                            alignItems: "center",
-                            gap: 12,
-                            marginBottom: 16,
-                            flexWrap: "nowrap"
+                            gap: 8
                         }}
                     >
-                        {/* SPECIES (LEFT) */}
-                        {availableSpecies.length > 1 && (
+                        {dayOptions.length > 1 && (
                             <select
-                                className="select"
-                                style={{ width: 220 }}
-                                value={species ?? ""}
+                                value={day ?? ""}
                                 onChange={e =>
-                                    setSpecies(e.target.value || null)
+                                    setDay(
+                                        e.target.value
+                                            ? Number(e.target.value)
+                                            : null
+                                    )
                                 }
                             >
-                                <option value="">All species</option>
-                                {availableSpecies.map(s => (
-                                    <option key={s} value={s}>
-                                        {s}
+                                <option value="">All days</option>
+                                {dayOptions.map(([d, date]) => (
+                                    <option key={d} value={d}>
+                                        Day {d} — {formatDayLabel(date)}
                                     </option>
                                 ))}
                             </select>
                         )}
 
-                        {/* DAYS (RIGHT) */}
-                        {availableDays.length > 1 && (
-                            <div style={{ display: "flex", gap: 8 }}>
-                                <button
-                                    className={`btn ${day === null ? "primary" : ""
-                                        }`}
-                                    onClick={() => setDay(null)}
-                                >
-                                    All Days
-                                </button>
+                        <select
+                            value={species ?? ""}
+                            onChange={e =>
+                                setSpecies(e.target.value || null)
+                            }
+                        >
+                            <option value="">All species</option>
+                            {speciesOptions.map(s => (
+                                <option key={s} value={s}>
+                                    {s}
+                                </option>
+                            ))}
+                        </select>
 
-                                {availableDays.map(d => (
-                                    <button
-                                        key={d}
-                                        className={`btn ${day === d ? "primary" : ""
-                                            }`}
-                                        onClick={() => setDay(d)}
-                                    >
-                                        {formatDayLabel(dayMap.get(d)!)}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
+                        <select
+                            value={category ?? ""}
+                            onChange={e =>
+                                setCategory(
+                                    (e.target.value as any) || null
+                                )
+                            }
+                        >
+                            <option value="">All anglers</option>
+                            {categoryOptions.map(c => (
+                                <option key={c} value={c}>
+                                    {capitalize(c)}
+                                </option>
+                            ))}
+                        </select>
                     </div>
-                )}
+                </div>
 
+                {/* RESULTS */}
                 {filteredResults.length === 0 ? (
                     <p>No results available.</p>
                 ) : (
@@ -288,14 +344,27 @@ export default function PublicResultsPage() {
                                     key={`${r.day}-${r.angler}-${r.species}-${i}`}
                                 >
                                     <td>{i + 1}</td>
-                                    <td>{r.angler}</td>
+                                    <td>
+                                        <span className="flex">
+                                            {r.angler}
+                                            <span
+                                                className={`cat-badge cat-${capitalize(
+                                                    r.category
+                                                )}`}
+                                            >
+                                                {capitalize(r.category)}
+                                            </span>
+                                        </span>
+                                    </td>
                                     <td>{r.species}</td>
                                     <td>
                                         {r.weight_kg !== null
                                             ? r.weight_kg.toFixed(2)
                                             : "—"}
                                     </td>
-                                    <td>{formatDayLabel(r.day_date)}</td>
+                                    <td>
+                                        {formatDayLabel(r.day_date)}
+                                    </td>
                                 </tr>
                             ))}
                         </tbody>
@@ -304,6 +373,7 @@ export default function PublicResultsPage() {
             </div>
         );
     }
+
 
     // =========================================================================
     // RENDER — SELECTION MODE
