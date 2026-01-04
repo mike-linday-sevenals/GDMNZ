@@ -10,7 +10,7 @@ import {
     listPrizesForCompetition,
 } from "@/services/api";
 
-import "./prizeGivingPrint.css";
+import "./PrizeGivingPrint.css";
 
 /* ======================================================================
    TYPES
