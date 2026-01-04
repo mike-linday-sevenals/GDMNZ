@@ -1,25 +1,32 @@
 import { supabase } from "./db";
 
 export type PublicResultRow = {
-    id: string | number;
-    day: 1 | 2;
-    species: string;
-    category?: string | null;
+    public_results_slug: string;
+    competition_name: string;
+    day: number;
+    day_date: string;
     angler: string;
-    team?: string | null;
+    species: string;
     weight_kg: number | null;
-    length_cm?: number | null;
-    submitted_at: string;
 };
 
-export async function getPublicResults(day: 1 | 2 | null): Promise<PublicResultRow[]> {
-    try {
-        let q = supabase.from("vw_wosc_public_results").select("*").order("weight_kg", { ascending: false });
-        if (day) q = q.eq("day", day);
-        const { data, error } = await q;
-        if (error) throw error;
-        return (data ?? []) as PublicResultRow[];
-    } catch {
-        return [];
+export async function getPublicResultsBySlug(
+    slug: string,
+    day: number | null
+) {
+    let q = supabase
+        .from("vw_public_competition_results")
+        .select("*")
+        .eq("public_results_slug", slug)
+        .order("day")
+        .order("weight_kg", { ascending: false });
+
+    if (day !== null) {
+        q = q.eq("day", day);
     }
+
+    const { data, error } = await q;
+    if (error) throw error;
+
+    return (data ?? []) as PublicResultRow[];
 }

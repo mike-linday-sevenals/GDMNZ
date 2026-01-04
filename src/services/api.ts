@@ -1378,7 +1378,19 @@ export async function listPublicOrganisations() {
 // PUBLIC — competition lookup by public slug
 // ============================================================================
 
-export async function getCompetitionByPublicSlug(slug: string) {
+export type PublicCompetition = {
+    id: string;
+    name: string;
+    public_results_slug: string;
+    prize_mode: {
+        id: string;
+        name: "combined" | "split";
+    } | null;
+};
+
+export async function getCompetitionByPublicSlug(
+    slug: string
+): Promise<PublicCompetition | null> {
     if (!client) throw new Error("Supabase not ready");
 
     const { data, error } = await client
@@ -1387,8 +1399,9 @@ export async function getCompetitionByPublicSlug(slug: string) {
             id,
             name,
             public_results_slug,
-            org:competition_organisation (
-                organisation_id
+            prize_mode:prize_mode_id (
+                id,
+                name
             )
         `)
         .eq("public_results_slug", slug)
@@ -1397,17 +1410,18 @@ export async function getCompetitionByPublicSlug(slug: string) {
     if (error) throw error;
     if (!data) return null;
 
-    // 🔑 competition_organisation is ALWAYS an array
-    const organisationId = data.org?.[0]?.organisation_id ?? null;
+    const prizeMode =
+        Array.isArray(data.prize_mode)
+            ? data.prize_mode[0] ?? null
+            : data.prize_mode ?? null;
 
     return {
         id: data.id,
         name: data.name,
-        organisation_id: organisationId,
         public_results_slug: data.public_results_slug,
+        prize_mode: prizeMode
     };
 }
-
 
 
 // ============================================================================

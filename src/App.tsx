@@ -1,5 +1,4 @@
-﻿import React from "react";
-import { Routes, Route, Navigate, useLocation } from "react-router-dom";
+﻿import { Routes, Route, Navigate } from "react-router-dom";
 
 /* =====================================================================
    🌍 PUBLIC PAGES
@@ -22,7 +21,6 @@ import AdminSponsors from "./clubadmin/pages/AdminSponsors";
    🧭 CLUB ADMIN (COMPETITION / ORG ADMIN)
    ===================================================================== */
 import Admin from "./clubadmin/pages/Admin";
-
 import CompetitionsList from "./clubadmin/pages/Competitions/CompetitionsList";
 import AddCompetition from "./clubadmin/pages/Competitions/AddCompetition";
 import EditCompetition from "./clubadmin/pages/Competitions/EditCompetition";
@@ -42,8 +40,6 @@ import AdminGate from "./admin/AdminGate";
 import AdminDashboard from "./admin/pages/Dashboard";
 
 export default function App() {
-    const location = useLocation();
-
     return (
         <Routes>
 
@@ -52,10 +48,12 @@ export default function App() {
                =============================================================== */}
             <Route element={<SiteLayout />}>
                 <Route path="/" element={<LandingPage />} />
-                <Route
-                    path="/results"
-                    element={<PublicResultsPage key={location.search} />}
-                />
+
+                {/* Public results selector */}
+                <Route path="/results" element={<PublicResultsPage />} />
+
+                {/* Shareable public results (deep link) */}
+                <Route path="/results/:slug" element={<PublicResultsPage />} />
             </Route>
 
             {/* ===============================================================
@@ -76,20 +74,18 @@ export default function App() {
                 <Route path="prizegiving" element={<ClubPrizeGiving />} />
                 <Route path="data" element={<ClubData />} />
 
-                {/* ✅ Sponsors (ORG-LEVEL, matches nav tab) */}
+                {/* Sponsors (ORG-level) */}
                 <Route path="sponsors" element={<AdminSponsors />} />
 
                 {/* ===========================================================
                    🧭 ADMIN AREA (competition + system admin)
                    =========================================================== */}
                 <Route path="admin" element={<Admin />}>
-                    {/* Default admin landing → Competitions */}
                     <Route
                         index
                         element={<Navigate to="competitions" replace />}
                     />
 
-                    {/* 🏆 Competitions */}
                     <Route path="competitions" element={<CompetitionsList />}>
                         <Route path="add" element={<AddCompetition />} />
                         <Route path=":id" element={<EditCompetition />} />
