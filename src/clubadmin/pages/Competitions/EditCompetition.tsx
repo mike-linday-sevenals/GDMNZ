@@ -1,6 +1,17 @@
-﻿import { useEffect, useState } from "react";
+﻿// ============================================================================
+// File: EditCompetition.tsx
+// Path: src/clubadmin/pages/Competitions/EditCompetition.tsx
+// Description:
+// Edit an existing competition.
+// IMPORTANT:
+//  - Competition is created as a *shell*
+//  - Child records are guaranteed by the API
+// ============================================================================
+
+import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 
+// Club-admin scoped APIs
 import {
     getCompetition,
     updateCompetition,
@@ -8,19 +19,35 @@ import {
     updateCompetitionDay,
     addCompetitionDay,
     deleteCompetitionDay,
-    getCompetitionBriefing,
-    upsertCompetitionBriefing,
-    getCompetitionFees,
-    upsertCompetitionFees,
     listSpecies,
     listCompetitionSpecies,
     saveCompetitionSpecies,
-} from "@/services/api";
+    listCompetitionTypes,
+    listCompModes,
+    listPrizeModes,
+    getCompetitionBriefing,
+    upsertCompetitionBriefing,
+} from "@/clubadmin/api/competitions";
 
-import type { Competition, CompetitionDay, Species } from "@/types";
+// Types
+import type {
+    Competition,
+    CompetitionDay,
+    Species,
+    CompetitionType,
+    CompMode,
+    PrizeMode,
+} from "@/types";
 
 type FishingStartType = "None" | "Required";
 type WeighinType = "None" | "Optional" | "Required";
+
+type CompetitionBriefing = {
+    briefing_date: string | null;
+    briefing_time: string | null;
+    location: string | null;
+    notes: string | null;
+};
 
 export default function EditCompetition() {
     const { organisationId, id } = useParams<{
@@ -29,39 +56,77 @@ export default function EditCompetition() {
     }>();
 
     const [competition, setCompetition] = useState<Competition | null>(null);
-    const [briefing, setBriefing] = useState<any | null>(null);
     const [days, setDays] = useState<CompetitionDay[]>([]);
-    const [fees, setFees] = useState<any | null>(null);
+
+    const [competitionTypes, setCompetitionTypes] = useState<CompetitionType[]>([]);
+    const [compModes, setCompModes] = useState<CompMode[]>([]);
+    const [prizeModes, setPrizeModes] = useState<PrizeMode[]>([]);
 
     const [allSpecies, setAllSpecies] = useState<Species[]>([]);
     const [selectedSpeciesIds, setSelectedSpeciesIds] = useState<number[]>([]);
 
+    const [briefing, setBriefing] = useState<CompetitionBriefing>({
+        briefing_date: null,
+        briefing_time: null,
+        location: null,
+        notes: null,
+    });
+
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
 
-    /* ============================================================
-       LOAD
-       ============================================================ */
+    // =========================================================================
+    // LOAD
+    // =========================================================================
     useEffect(() => {
         if (!organisationId || !id) return;
 
         (async () => {
             setLoading(true);
             try {
-                setCompetition(await getCompetition(organisationId, id));
-                setBriefing(await getCompetitionBriefing(organisationId, id));
-                setDays(await listCompetitionDays(organisationId, id));
-                setFees(await getCompetitionFees(organisationId, id));
+                const comp = await getCompetition(organisationId, id);
+                setCompetition(comp);
 
-                setAllSpecies(await listSpecies());
+                const [types, modes, prizes] = await Promise.all([
+                    listCompetitionTypes(),
+                    listCompModes(),
+                    listPrizeModes(),
+                ]);
 
-                const compSpecies = await listCompetitionSpecies(
-                    organisationId,
-                    id
+                setCompetitionTypes(types);
+                setCompModes(
+                    modes.filter(
+                        (m): m is CompMode =>
+                            m.name === "weight" ||
+                            m.name === "length" ||
+                            m.name === "mixed"
+                    )
                 );
-                setSelectedSpeciesIds(
-                    compSpecies.map((s) => s.species.id)
+                setPrizeModes(
+                    prizes.filter(
+                        (p): p is PrizeMode =>
+                            p.name === "combined" || p.name === "split"
+                    )
                 );
+
+                const b = await getCompetitionBriefing(organisationId, id);
+                if (b) {
+                    setBriefing({
+                        briefing_date: b.briefing_date ?? null,
+                        briefing_time: b.briefing_time ?? null,
+                        location: b.location ?? null,
+                        notes: b.notes ?? null,
+                    });
+                }
+
+                const compDays = await listCompetitionDays(organisationId, id);
+                setDays(compDays);
+
+                const species = await listSpecies();
+                setAllSpecies(species);
+
+                const compSpecies = await listCompetitionSpecies(organisationId, id);
+                setSelectedSpeciesIds(compSpecies.map((s) => s.species.id));
             } catch (err) {
                 console.error(err);
                 alert("Unable to load competition");
@@ -71,9 +136,10 @@ export default function EditCompetition() {
         })();
     }, [organisationId, id]);
 
-    /* ============================================================
-       HELPERS
-       ============================================================ */
+    // =========================================================================
+    // HELPERS
+    // =========================================================================
+
     function onFieldChange<K extends keyof Competition>(
         field: K,
         value: Competition[K]
@@ -89,17 +155,17 @@ export default function EditCompetition() {
         });
     }
 
-    function toggleSpecies(id: number) {
+    function toggleSpecies(speciesId: number) {
         setSelectedSpeciesIds((prev) =>
-            prev.includes(id)
-                ? prev.filter((x) => x !== id)
-                : [...prev, id]
+            prev.includes(speciesId)
+                ? prev.filter((x) => x !== speciesId)
+                : [...prev, speciesId]
         );
     }
 
-    /* ============================================================
-       SAVE
-       ============================================================ */
+    // =========================================================================
+    // SAVE
+    // =========================================================================
     async function saveChanges() {
         if (!organisationId || !id || !competition) return;
 
@@ -109,39 +175,36 @@ export default function EditCompetition() {
                 name: competition.name,
                 starts_at: competition.starts_at,
                 ends_at: competition.ends_at,
+                competition_type_id: competition.competition_type_id ?? null,
                 comp_mode_id: competition.comp_mode_id ?? null,
                 prize_mode_id: competition.prize_mode_id ?? null,
             });
 
-            await upsertCompetitionBriefing(organisationId, id, {
-                briefing_date: briefing?.briefing_date || null,
-                briefing_time: briefing?.briefing_time || null,
-                location: briefing?.location || null,
-                notes: briefing?.notes || null,
-            });
+            await upsertCompetitionBriefing(organisationId, id, briefing);
 
             for (const d of days) {
                 await updateCompetitionDay(d.id, {
                     day_date: d.day_date,
                     fishing_start_type: d.fishing_start_type as FishingStartType,
                     fishing_start_time: d.fishing_start_time || null,
+                    fishing_end_type: d.fishing_end_type || "None",
                     fishing_end_time: d.fishing_end_time || null,
                     weighin_type: d.weighin_type as WeighinType,
                     weighin_start_time: d.weighin_start_time || null,
                     weighin_end_time: d.weighin_end_time || null,
-                    overnight_allowed: d.overnight_allowed ?? false,
+                    weighin_cutoff_time: d.weighin_cutoff_time || null,
+                    overnight_allowed: !!d.overnight_allowed,
                     notes: d.notes || null,
                 });
             }
 
-            await upsertCompetitionFees(organisationId, id, fees);
             await saveCompetitionSpecies(
                 organisationId,
                 id,
                 selectedSpeciesIds
             );
 
-            alert("Competition updated!");
+            alert("Competition updated");
         } catch (err) {
             console.error(err);
             alert("Save failed");
@@ -157,20 +220,21 @@ export default function EditCompetition() {
     }
 
     async function removeDay(dayId: string) {
-        if (!confirm("Remove this day?")) return;
+        if (!confirm("Remove this fishing day?")) return;
         await deleteCompetitionDay(dayId);
         setDays((prev) => prev.filter((d) => d.id !== dayId));
     }
 
-    /* ============================================================
-       RENDER
-       ============================================================ */
-    if (loading || !competition || !briefing || !fees) {
+    // =========================================================================
+    // RENDER
+    // =========================================================================
+
+    if (loading || !competition) {
         return <p className="muted">Loading…</p>;
     }
+
     return (
         <section className="card admin-card">
-            {/* ================= PAGE HEADER ================= */}
             <div className="actions" style={{ marginBottom: 12 }}>
                 <Link to=".." className="btn btn--lg">
                     ← Back to Competitions
@@ -179,7 +243,8 @@ export default function EditCompetition() {
 
             <h2>Edit Competition</h2>
 
-            {/* ================= BASIC DETAILS ================= */}
+            {/* COMPETITION DETAILS */}
+            {/* ================= COMPETITION DETAILS ================= */}
             <section className="card">
                 <h3>Competition Details</h3>
 
@@ -215,23 +280,113 @@ export default function EditCompetition() {
                             }
                         />
                     </div>
+
+                    <div className="field span-6">
+                        <label>Competition type</label>
+                        <select
+                            value={competition.competition_type_id ?? ""}
+                            onChange={(e) =>
+                                onFieldChange(
+                                    "competition_type_id",
+                                    e.target.value || null
+                                )
+                            }
+                        >
+                            <option value="">— Select —</option>
+                            {competitionTypes.map((t) => (
+                                <option key={t.id} value={t.id}>
+                                    {t.name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div className="field span-6">
+                        <label>Competition mode</label>
+                        <select
+                            value={competition.comp_mode_id ?? ""}
+                            onChange={(e) =>
+                                onFieldChange(
+                                    "comp_mode_id",
+                                    e.target.value || null
+                                )
+                            }
+                        >
+                            <option value="">— Select —</option>
+                            {compModes.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                    {m.name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div className="field span-6">
+                        <label>Prize grouping</label>
+                        <select
+                            value={competition.prize_mode_id ?? ""}
+                            onChange={(e) =>
+                                onFieldChange(
+                                    "prize_mode_id",
+                                    e.target.value || null
+                                )
+                            }
+                        >
+                            <option value="">— Select —</option>
+                            {prizeModes.map((p) => (
+                                <option key={p.id} value={p.id}>
+                                    {p.name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
                 </div>
             </section>
 
+
+            {/* BRIEFING */}
             {/* ================= BRIEFING ================= */}
             <section className="card">
-                <h3>Safety Briefing</h3>
+                <h3>Competition Briefing</h3>
 
                 <div className="form-grid">
+                    <div className="field span-4">
+                        <label>Date</label>
+                        <input
+                            type="date"
+                            value={briefing.briefing_date ?? ""}
+                            onChange={(e) =>
+                                setBriefing((b) => ({
+                                    ...b,
+                                    briefing_date: e.target.value || null,
+                                }))
+                            }
+                        />
+                    </div>
+
+                    <div className="field span-4">
+                        <label>Time</label>
+                        <input
+                            type="time"
+                            value={briefing.briefing_time ?? ""}
+                            onChange={(e) =>
+                                setBriefing((b) => ({
+                                    ...b,
+                                    briefing_time: e.target.value || null,
+                                }))
+                            }
+                        />
+                    </div>
+
                     <div className="field span-12">
                         <label>Location</label>
                         <input
                             value={briefing.location ?? ""}
                             onChange={(e) =>
-                                setBriefing({
-                                    ...briefing,
-                                    location: e.target.value,
-                                })
+                                setBriefing((b) => ({
+                                    ...b,
+                                    location: e.target.value || null,
+                                }))
                             }
                         />
                     </div>
@@ -239,28 +394,27 @@ export default function EditCompetition() {
                     <div className="field span-12">
                         <label>Notes</label>
                         <textarea
-                            placeholder="Any mandatory information competitors must know"
                             value={briefing.notes ?? ""}
                             onChange={(e) =>
-                                setBriefing({
-                                    ...briefing,
-                                    notes: e.target.value,
-                                })
+                                setBriefing((b) => ({
+                                    ...b,
+                                    notes: e.target.value || null,
+                                }))
                             }
                         />
                     </div>
                 </div>
             </section>
 
+
+            {/* FISHING DAYS */}
             {/* ================= FISHING DAYS ================= */}
             <section className="card">
                 <h3>Fishing Days</h3>
 
                 {days.map((d, i) => (
                     <section key={d.id} className="card">
-                        <h4 style={{ marginBottom: 8 }}>
-                            Day {i + 1}
-                        </h4>
+                        <h4>Day {i + 1}</h4>
 
                         <div className="form-grid">
                             <div className="field span-4">
@@ -269,15 +423,13 @@ export default function EditCompetition() {
                                     type="date"
                                     value={d.day_date}
                                     onChange={(e) =>
-                                        updateDay(i, {
-                                            day_date: e.target.value,
-                                        })
+                                        updateDay(i, { day_date: e.target.value })
                                     }
                                 />
                             </div>
 
                             <div className="field span-4">
-                                <label>Fishing start</label>
+                                <label>Fishing start type</label>
                                 <select
                                     value={d.fishing_start_type}
                                     onChange={(e) =>
@@ -293,7 +445,49 @@ export default function EditCompetition() {
                             </div>
 
                             <div className="field span-4">
-                                <label>Weigh-in</label>
+                                <label>Fishing start time</label>
+                                <input
+                                    type="time"
+                                    value={d.fishing_start_time ?? ""}
+                                    onChange={(e) =>
+                                        updateDay(i, {
+                                            fishing_start_time: e.target.value || null,
+                                        })
+                                    }
+                                />
+                            </div>
+
+                            <div className="field span-4">
+                                <label>Fishing end type</label>
+                                <select
+                                    value={d.fishing_end_type ?? "None"}
+                                    onChange={(e) =>
+                                        updateDay(i, {
+                                            fishing_end_type:
+                                                e.target.value as "None" | "Required",
+                                        })
+                                    }
+                                >
+                                    <option value="None">None</option>
+                                    <option value="Required">Required</option>
+                                </select>
+                            </div>
+
+                            <div className="field span-4">
+                                <label>Fishing end time</label>
+                                <input
+                                    type="time"
+                                    value={d.fishing_end_time ?? ""}
+                                    onChange={(e) =>
+                                        updateDay(i, {
+                                            fishing_end_time: e.target.value || null,
+                                        })
+                                    }
+                                />
+                            </div>
+
+                            <div className="field span-4">
+                                <label>Weigh-in type</label>
                                 <select
                                     value={d.weighin_type}
                                     onChange={(e) =>
@@ -309,15 +503,60 @@ export default function EditCompetition() {
                                 </select>
                             </div>
 
-                            <div className="field span-6">
+                            {d.weighin_type !== "None" && (
+                                <>
+                                    <div className="field span-4">
+                                        <label>Weigh-in start</label>
+                                        <input
+                                            type="time"
+                                            value={d.weighin_start_time ?? ""}
+                                            onChange={(e) =>
+                                                updateDay(i, {
+                                                    weighin_start_time:
+                                                        e.target.value || null,
+                                                })
+                                            }
+                                        />
+                                    </div>
+
+                                    <div className="field span-4">
+                                        <label>Weigh-in end</label>
+                                        <input
+                                            type="time"
+                                            value={d.weighin_end_time ?? ""}
+                                            onChange={(e) =>
+                                                updateDay(i, {
+                                                    weighin_end_time:
+                                                        e.target.value || null,
+                                                })
+                                            }
+                                        />
+                                    </div>
+
+                                    <div className="field span-4">
+                                        <label>Weigh-in cutoff</label>
+                                        <input
+                                            type="time"
+                                            value={d.weighin_cutoff_time ?? ""}
+                                            onChange={(e) =>
+                                                updateDay(i, {
+                                                    weighin_cutoff_time:
+                                                        e.target.value || null,
+                                                })
+                                            }
+                                        />
+                                    </div>
+                                </>
+                            )}
+
+                            <div className="field span-12">
                                 <label className="switch">
                                     <input
                                         type="checkbox"
                                         checked={!!d.overnight_allowed}
                                         onChange={(e) =>
                                             updateDay(i, {
-                                                overnight_allowed:
-                                                    e.target.checked,
+                                                overnight_allowed: e.target.checked,
                                             })
                                         }
                                     />
@@ -328,7 +567,6 @@ export default function EditCompetition() {
                             <div className="field span-12">
                                 <label>Notes</label>
                                 <textarea
-                                    placeholder="Optional notes for this day"
                                     value={d.notes ?? ""}
                                     onChange={(e) =>
                                         updateDay(i, { notes: e.target.value })
@@ -355,18 +593,15 @@ export default function EditCompetition() {
                 </div>
             </section>
 
+
+            {/* SPECIES */}
             {/* ================= SPECIES ================= */}
             <section className="card">
                 <h3>Eligible Species</h3>
 
-                <p className="muted" style={{ marginBottom: 8 }}>
-                    Select which species can be entered for this competition
-                </p>
-
                 <div className="species-grid">
                     {allSpecies.map((s) => {
                         const checked = selectedSpeciesIds.includes(s.id);
-
                         return (
                             <label
                                 key={s.id}
@@ -382,9 +617,10 @@ export default function EditCompetition() {
                         );
                     })}
                 </div>
-
             </section>
 
+
+            {/* SAVE */}
             {/* ================= SAVE ================= */}
             <section className="card">
                 <div className="actions">
@@ -397,6 +633,7 @@ export default function EditCompetition() {
                     </button>
                 </div>
             </section>
+
         </section>
     );
 }

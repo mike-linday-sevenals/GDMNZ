@@ -1,23 +1,27 @@
 ﻿// ================================================================
 // EXISTING TYPES (unchanged)
 // ================================================================
-export type Category = 'Adult' | 'Junior'
+
+export type Category = "Adult" | "Junior";
 
 export interface Settings {
-    earlyBirdCutoff?: string
-    fees: { Adult: { early: number, standard: number }, Junior: { early: number, standard: number } }
-    decimals: number
-    compMode: 'weight' | 'measure'
-    showTime: boolean
-    requireTime: boolean
-    prizeMode: 'combined' | 'split'
-    activeSpeciesIds?: number[]
+    earlyBirdCutoff?: string;
+    fees: {
+        Adult: { early: number; standard: number };
+        Junior: { early: number; standard: number };
+    };
+    decimals: number;
+    compMode: "weight" | "measure";
+    showTime: boolean;
+    requireTime: boolean;
+    prizeMode: "combined" | "split";
+    activeSpeciesIds?: number[];
 }
 
 export interface Species {
-    id: number
-    name: string
-    is_measure?: boolean
+    id: number;
+    name: string;
+    is_measure?: boolean;
 }
 
 export type Competitor = {
@@ -29,97 +33,162 @@ export type Competitor = {
     paid_on: string | null;
     boat: string;
 
-    // ✅ ADD THESE
     membership_no: string;
     boat_type: "Launch" | "Trailer" | "Charter";
-
 };
 
-
 export interface FishJoined {
-    id: string | number
-    weight_kg?: number | null
-    length_cm?: number | null
-    time_caught?: string | null
-    created_at?: string | null
+    id: string | number;
+    weight_kg?: number | null;
+    length_cm?: number | null;
+    time_caught?: string | null;
+    created_at?: string | null;
     competitor?: {
-        id: string | number
-        full_name: string
-        category: 'adult' | 'junior'
-        boat?: string | null
-        paid_on?: string | null
-    } | null
-    species?: { id: number; name: string } | null
+        id: string | number;
+        full_name: string;
+        category: "adult" | "junior";
+        boat?: string | null;
+        paid_on?: string | null;
+    } | null;
+    species?: { id: number; name: string } | null;
 }
 
 // ================================================================
-// NEW TYPES FOR COMPETITIONS
+// LOOKUP TYPES
 // ================================================================
 
+export interface CompetitionType {
+    id: string;
+    code?: string;
+    name: string;
+    description: string | null;
+}
+
 export interface CompMode {
-    id: string
-    name: string // "weight", "length"
+    id: string;
+    name: "weight" | "length" | "mixed";
 }
 
 export interface PrizeMode {
-    id: string
-    name: string // "combined", "split"
+    id: string;
+    name: "combined" | "split";
 }
+
+// ================================================================
+// COMPETITION
+// ================================================================
 
 /**
  * Competition row structure.
- * Supabase returns comp_mode and prize_mode as *single objects*, not arrays.
+ * Supabase returns joined relations as single objects (not arrays).
  */
 export interface Competition {
-    id: string
-    name: string
-    starts_at: string | null
-    ends_at: string | null
+    id: string;
+    name: string;
+    starts_at: string | null;
+    ends_at: string | null;
 
-    /** FK columns */
-    comp_mode_id?: string | null
-    prize_mode_id?: string | null
+    // -----------------------------
+    // Foreign key columns
+    // -----------------------------
+    competition_type_id?: string | null;
+    comp_mode_id?: string | null;
+    prize_mode_id?: string | null;
 
-    /** JOIN results from Supabase (single-row relations) */
-    comp_mode?: { id: string; name: string } | null
-    prize_mode?: { id: string; name: string } | null
+    // -----------------------------
+    // Joined lookup objects
+    // -----------------------------
+    competition_type?: CompetitionType | null;
+    comp_mode?: CompMode | null;
+    prize_mode?: PrizeMode | null;
 }
+
+// ================================================================
+// COMPETITION DAYS (FULLY ALIGNED WITH DB)
+// ================================================================
 
 export interface CompetitionDay {
-    id: string
-    competition_id: string
-    day_date: string
+    id: string;
+    competition_id: string;
 
-    fishing_start_type: "None" | "Required"
-    fishing_start_time?: string | null
+    day_date: string;
+    sort_order?: number | null;
 
-    fishing_end_time?: string | null
-    fishing_end_type?: "None" | "Required"
+    // -----------------------------
+    // Fishing window
+    // -----------------------------
+    fishing_start_type: "None" | "Required";
+    fishing_start_time?: string | null;
 
-    weighin_type: "None" | "Optional" | "Required"
-    weighin_start_time?: string | null
-    weighin_end_time?: string | null
+    fishing_end_type?: "None" | "Required";
+    fishing_end_time?: string | null;
 
-    overnight_allowed: boolean
-    notes?: string | null
+    // -----------------------------
+    // Overnight rules
+    // -----------------------------
+    overnight_allowed: boolean;
+
+    // -----------------------------
+    // Weigh-in window
+    // -----------------------------
+    weighin_type: "None" | "Optional" | "Required";
+    weighin_start_time?: string | null;
+    weighin_end_time?: string | null;
+    weighin_cutoff_time?: string | null;
+
+    // -----------------------------
+    // Notes
+    // -----------------------------
+    notes?: string | null;
+
+    // -----------------------------
+    // Meta
+    // -----------------------------
+    created_at?: string;
 
     /** UI-only expansion flag */
-    _open?: boolean
+    _open?: boolean;
 }
+
+// ================================================================
+// COMPETITION BRIEFING
+// ================================================================
 
 export interface CompetitionBriefing {
-    id: string
-    competition_id: string
-    briefing_date: string | null
-    briefing_time: string | null
-    location: string | null
-    notes?: string | null
+    id: string;
+    competition_id: string;
+    briefing_date: string | null;
+    briefing_time: string | null;
+    location: string | null;
+    notes?: string | null;
 }
 
-/**
- * Competition species row — used in listCompetitionSpecies()
- */
+// ================================================================
+// COMPETITION SPECIES
+// ================================================================
+
 export interface CompetitionSpeciesRow {
-    id: string
-    species: Species
+    id: string;
+    species: Species;
+}
+
+// ================================================================
+// COMPETITION FEES
+// ================================================================
+
+export interface CompetitionFees {
+    id: string;
+    competition_id: string;
+
+    earlybird_fee_adult: number | null;
+    earlybird_fee_junior: number | null;
+    earlybird_cutoff_date: string | null;
+
+    full_fee_adult: number | null;
+    full_fee_junior: number | null;
+
+    nonmember_fee_adult: number | null;
+    nonmember_fee_junior: number | null;
+
+    extra?: any;
 }

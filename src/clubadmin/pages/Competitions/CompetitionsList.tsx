@@ -1,13 +1,46 @@
-﻿import { useEffect, useState } from "react";
+﻿// ============================================================================
+// File: CompetitionsList.tsx
+// Path: src/clubadmin/pages/Competitions/CompetitionsList.tsx
+// Description:
+// Lists competitions for an organisation (club admin scope)
+// ============================================================================
+
+import { useEffect, useState } from "react";
 import { Link, Outlet, useParams } from "react-router-dom";
-import { listCompetitions } from "@/services/api";
+
+// 🔄 Migrated API import (clubadmin-scoped)
+import { listCompetitions } from "@/clubadmin/api/competitions";
+
+// Types
+type CompetitionListItem = {
+    id: string;
+    name: string;
+    starts_at: string;
+    ends_at: string;
+};
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+function formatDate(value: string) {
+    if (!value) return "—";
+    return new Date(value).toLocaleDateString("en-NZ", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+    });
+}
 
 export default function CompetitionsList() {
     const { organisationId } = useParams<{ organisationId: string }>();
 
-    const [competitions, setCompetitions] = useState<any[]>([]);
+    const [competitions, setCompetitions] = useState<CompetitionListItem[]>([]);
     const [loading, setLoading] = useState(true);
 
+    /* ============================================================
+       LOAD
+       ============================================================ */
     useEffect(() => {
         if (!organisationId) return;
         load();
@@ -20,7 +53,7 @@ export default function CompetitionsList() {
         setLoading(true);
         try {
             const data = await listCompetitions(organisationId);
-            setCompetitions(data || []);
+            setCompetitions(data ?? []);
         } catch (err) {
             console.error(err);
             alert("Failed to load competitions");
@@ -29,6 +62,9 @@ export default function CompetitionsList() {
         }
     }
 
+    /* ============================================================
+       RENDER
+       ============================================================ */
     return (
         <>
             {/* ================= LIST ================= */}
@@ -62,8 +98,8 @@ export default function CompetitionsList() {
                             {competitions.map((comp) => (
                                 <tr key={comp.id}>
                                     <td>{comp.name}</td>
-                                    <td>{comp.starts_at}</td>
-                                    <td>{comp.ends_at}</td>
+                                    <td>{formatDate(comp.starts_at)}</td>
+                                    <td>{formatDate(comp.ends_at)}</td>
                                     <td>
                                         <Link
                                             to={comp.id}

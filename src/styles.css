@@ -300,12 +300,15 @@ section.card {
     padding: 20px 24px;
 }
 
-    /* Submit form grid: fewer columns, more breathing room */
-    section.card .form-grid {
-        grid-template-columns: repeat(5, minmax(140px, 1fr));
-        gap: 16px 20px;
-        margin-top: 16px;
-    }
+/* =========================================================
+   Submit Catch – spacing & layout polish
+   ========================================================= */
+
+.submit-catch section.card .form-grid {
+    grid-template-columns: repeat(5, minmax(140px, 1fr));
+    gap: 16px 20px;
+    margin-top: 16px;
+}
 
     /* Individual field rhythm */
     section.card .field {
