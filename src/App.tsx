@@ -25,6 +25,10 @@ import CompetitionsList from "./clubadmin/pages/Competitions/CompetitionsList";
 import AddCompetition from "./clubadmin/pages/Competitions/AddCompetition";
 import EditCompetition from "./clubadmin/pages/Competitions/EditCompetition";
 
+
+
+
+
 /* =====================================================================
    🧱 LAYOUTS
    ===================================================================== */
@@ -35,9 +39,19 @@ import PlatformAdminLayout from "./layouts/PlatformAdminLayout";
 /* =====================================================================
    🔐 PLATFORM ADMIN
    ===================================================================== */
-import { AdminProvider } from "./admin/AdminContext";
-import AdminGate from "./admin/AdminGate";
-import AdminDashboard from "./admin/pages/Dashboard";
+import { AdminProvider } from "@/admin/AdminContext";
+import AdminGate from "@/admin/AdminGate";
+import AdminDashboard from "@/admin/pages/Dashboard";
+
+import AdminSettings from "@/admin/pages/Settings";
+import SettingsLanding from "@/admin/pages/Settings/Landing";
+
+import FishingSettings from "@/admin/pages/Settings/Fishing";
+import FishingLanding from "@/admin/pages/Settings/Fishing/Landing";
+import FishingSpecies from "@/admin/pages/Settings/Fishing/Species";
+
+
+
 
 export default function App() {
     return (
@@ -94,20 +108,38 @@ export default function App() {
             </Route>
 
             {/* ===============================================================
-               🔐 PLATFORM ADMIN
-               =============================================================== */}
+   🔐 PLATFORM ADMIN
+   =============================================================== */}
             <Route
                 path="/admin"
                 element={
                     <AdminProvider>
-                        <AdminGate>
-                            <PlatformAdminLayout />
-                        </AdminGate>
+                        <PlatformAdminLayout />
                     </AdminProvider>
                 }
             >
+                {/* Dashboard */}
                 <Route index element={<AdminDashboard />} />
+
+                {/* Settings */}
+                <Route path="settings" element={<AdminSettings />}>
+                    {/* Settings landing */}
+                    <Route index element={<SettingsLanding />} />
+
+                    <Route path="sports">
+                        <Route path="fishing" element={<FishingSettings />}>
+                            {/* Fishing landing */}
+                            <Route index element={<FishingLanding />} />
+
+                            {/* Fishing sub-pages */}
+                            <Route path="species" element={<FishingSpecies />} />
+                        </Route>
+                    </Route>
+                </Route>
             </Route>
+
+
+
 
             {/* ===============================================================
                🚑 FALLBACK

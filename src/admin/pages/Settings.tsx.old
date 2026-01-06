@@ -1,0 +1,131 @@
+import { Link } from "react-router-dom";
+
+/* ============================================================================
+   SETTINGS — PLATFORM
+   ========================================================================== */
+
+export default function AdminSettings() {
+    return (
+        <>
+            <h1>Settings</h1>
+            <p className="muted">
+                Configure platform-wide settings and manage sport modules.
+            </p>
+
+            {/* =============================================================
+               SPORTS MODULES
+               =========================================================== */}
+            <section style={{ marginTop: 32 }}>
+                <h2>Sports</h2>
+                <p className="muted">
+                    Manage rules, categories, and defaults for each sport.
+                </p>
+
+                <div className="grid three" style={{ marginTop: 16 }}>
+                    {/* FISHING */}
+                    <SportCard
+                        title="Fishing"
+                        description="Species, categories, and competition rules."
+                        status="active"
+                        to="/admin/settings/sports/fishing"
+                    />
+
+                    {/* FUTURE SPORTS */}
+                    <SportCard
+                        title="Equestrian"
+                        description="Horse classes, disciplines, and scoring."
+                        status="coming-soon"
+                    />
+
+                    <SportCard
+                        title="Sailing"
+                        description="Divisions, handicaps, and race rules."
+                        status="coming-soon"
+                    />
+                </div>
+            </section>
+
+            {/* =============================================================
+               PLATFORM SETTINGS (FUTURE)
+               =========================================================== */}
+            <section style={{ marginTop: 48 }}>
+                <h2>Platform</h2>
+                <p className="muted">
+                    Global configuration that applies across all sports.
+                </p>
+
+                <div className="grid two" style={{ marginTop: 16 }}>
+                    <div className="card muted">
+                        <h3>General</h3>
+                        <p>
+                            Platform defaults, status codes, and system-wide
+                            behaviour.
+                        </p>
+                        <span className="badge">Planned</span>
+                    </div>
+
+                    <div className="card muted">
+                        <h3>Access & Roles</h3>
+                        <p>
+                            Permissions, admin roles, and access control.
+                        </p>
+                        <span className="badge">Planned</span>
+                    </div>
+                </div>
+            </section>
+        </>
+    );
+}
+
+/* ============================================================================
+   SPORT CARD
+   ========================================================================== */
+
+function SportCard({
+    title,
+    description,
+    status,
+    to,
+}: {
+    title: string;
+    description: string;
+    status: "active" | "coming-soon";
+    to?: string;
+}) {
+    const isActive = status === "active";
+
+    const card = (
+        <div className="card">
+            <div
+                style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "start",
+                }}
+            >
+                <h3>{title}</h3>
+                <span
+                    className={
+                        isActive ? "badge success" : "badge"
+                    }
+                >
+                    {isActive ? "Active" : "Coming soon"}
+                </span>
+            </div>
+
+            <p className="muted" style={{ marginTop: 8 }}>
+                {description}
+            </p>
+
+            {isActive && (
+                <div style={{ marginTop: 16 }}>
+                    <span className="btn btn--sm-primary">
+                        Manage
+                    </span>
+                </div>
+            )}
+        </div>
+    );
+
+    return isActive && to ? <Link to={to}>{card}</Link> : card;
+}

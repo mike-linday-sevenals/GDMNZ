@@ -176,19 +176,18 @@ a.btn {
 }
 /* Small primary button (blue, like Add Competition but smaller) */
 .btn--sm-primary {
-    padding: 6px 14px;
-    height: 32px;
-    border-radius: 10px;
     border: 1px solid var(--accent);
     background: linear-gradient(180deg, #e8f5ff, #dff3ff);
     color: #0b3860;
-    font-size: 0.85rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    text-decoration: none !important;
-    cursor: pointer;
 }
+
+.btn--sm-secondary {
+    border: 1px solid var(--border);
+    background: #fff;
+    color: var(--text);
+}
+
+
 /* ============================
    Sponsors list layout
    ============================ */
@@ -495,3 +494,121 @@ section.card {
     .modal-shell h3 {
         margin-top: 0;
     }
+.card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 16px;
+    margin: 14px 0;
+    box-shadow: 0 2px 6px rgba(26,46,60,.06)
+}
+/* =========================================================
+   Small button base (shared size)
+   ========================================================= */
+.btn--sm {
+    padding: 6px 14px;
+    height: 32px;
+    font-size: 0.85rem;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+
+/* ============================
+   Modal
+   ============================ */
+
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.45); /* dark slate w/ opacity */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal-card {
+    background: var(--card, #ffffff);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 520px;
+    padding: 20px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15), 0 2px 8px rgba(0, 0, 0, 0.1);
+    animation: modal-pop 0.15s ease-out;
+}
+
+/* Optional: subtle entrance */
+@keyframes modal-pop {
+    from {
+        opacity: 0;
+        transform: translateY(6px) scale(0.98);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+/* =========================================================
+   Button sizing normalization
+   ========================================================= */
+
+/* Base button cleanup */
+.btn {
+    padding: 8px 14px;
+    height: 36px;
+    font-size: 0.9rem;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+
+/* True small button (tables, inline actions) */
+.btn--sm,
+.btn--sm-primary,
+.btn--sm-secondary {
+    padding: 6px 12px;
+    height: 30px;
+    font-size: 0.82rem;
+    border-radius: 8px;
+}
+
+/* Ensure small buttons don’t “jump” when active/hovered */
+.btn--sm-primary,
+.btn--sm-secondary {
+    box-sizing: border-box;
+}
+
+/* Primary small button */
+.btn--sm-primary {
+    border: 1px solid var(--accent);
+    background: linear-gradient(180deg, #e8f5ff, #dff3ff);
+    color: #0b3860;
+}
+
+/* Secondary small button */
+.btn--sm-secondary {
+    border: 1px solid var(--border);
+    background: #fff;
+    color: var(--text);
+}
+/* =========================================================
+   Table + button alignment polish
+   ========================================================= */
+
+table.data-table td {
+    vertical-align: middle;
+    padding-top: 8px;
+    padding-bottom: 8px;
+}
+
+table.data-table .btn {
+    margin: 0;
+}
