@@ -1,5 +1,5 @@
-/* ======================================================================
-   Prize Giving � Print Layout
+﻿/* ======================================================================
+   Prize Giving — Print Layout
    Document-style, single-page friendly
    ====================================================================== */
 
@@ -163,4 +163,9 @@
     body {
         overflow: hidden;
     }
+}
+.prize-giving table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed; /* 🔒 critical */
 }

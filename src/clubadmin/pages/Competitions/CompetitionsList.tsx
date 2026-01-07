@@ -6,7 +6,7 @@
 // ============================================================================
 
 import { useEffect, useState } from "react";
-import { Link, Outlet, useParams } from "react-router-dom";
+import { Link, Outlet, useParams, useOutlet } from "react-router-dom";
 
 // 🔄 Migrated API import (clubadmin-scoped)
 import { listCompetitions } from "@/clubadmin/api/competitions";
@@ -34,6 +34,7 @@ function formatDate(value: string) {
 
 export default function CompetitionsList() {
     const { organisationId } = useParams<{ organisationId: string }>();
+    const outlet = useOutlet(); // 👈 detect child route
 
     const [competitions, setCompetitions] = useState<CompetitionListItem[]>([]);
     const [loading, setLoading] = useState(true);
@@ -68,52 +69,54 @@ export default function CompetitionsList() {
     return (
         <>
             {/* ================= LIST ================= */}
-            <section className="card admin-card" style={{ padding: 24 }}>
-                <h2>Competitions</h2>
+            {!outlet && (
+                <section className="card admin-card" style={{ padding: 24 }}>
+                    <h2>Competitions</h2>
 
-                <div className="actions" style={{ marginBottom: 16 }}>
-                    <Link to="add" className="btn primary">
-                        + Add Competition
-                    </Link>
-                </div>
+                    <div className="actions" style={{ marginBottom: 16 }}>
+                        <Link to="add" className="btn primary">
+                            + Add Competition
+                        </Link>
+                    </div>
 
-                {loading ? (
-                    <p className="muted">Loading…</p>
-                ) : competitions.length === 0 ? (
-                    <p className="muted">No competitions found.</p>
-                ) : (
-                    <table
-                        className="data-table"
-                        style={{ width: "100%", marginTop: 12 }}
-                    >
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Starts</th>
-                                <th>Ends</th>
-                                <th style={{ width: 120 }}></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {competitions.map((comp) => (
-                                <tr key={comp.id}>
-                                    <td>{comp.name}</td>
-                                    <td>{formatDate(comp.starts_at)}</td>
-                                    <td>{formatDate(comp.ends_at)}</td>
-                                    <td>
-                                        <Link
-                                            to={comp.id}
-                                            className="btn btn--sm-primary"
-                                        >
-                                            Edit
-                                        </Link>
-                                    </td>
+                    {loading ? (
+                        <p className="muted">Loading…</p>
+                    ) : competitions.length === 0 ? (
+                        <p className="muted">No competitions found.</p>
+                    ) : (
+                        <table
+                            className="data-table"
+                            style={{ width: "100%", marginTop: 12 }}
+                        >
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Starts</th>
+                                    <th>Ends</th>
+                                    <th style={{ width: 120 }}></th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                )}
-            </section>
+                            </thead>
+                            <tbody>
+                                {competitions.map((comp) => (
+                                    <tr key={comp.id}>
+                                        <td>{comp.name}</td>
+                                        <td>{formatDate(comp.starts_at)}</td>
+                                        <td>{formatDate(comp.ends_at)}</td>
+                                        <td>
+                                            <Link
+                                                to={comp.id}
+                                                className="btn btn--sm-primary"
+                                            >
+                                                Edit
+                                            </Link>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </section>
+            )}
 
             {/* ================= CHILD ROUTES ================= */}
             <Outlet />

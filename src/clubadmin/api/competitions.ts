@@ -90,6 +90,22 @@ async function getOrganisationClubCode(organisationId: string): Promise<string> 
     return data.club_code.toLowerCase();
 }
 
+export async function canDeleteCompetition(
+    competitionId: string
+): Promise<boolean> {
+    if (!client) throw new Error("Supabase not ready");
+
+    const { count, error } = await client
+        .from("competition_competitor")
+        .select("*", { count: "exact", head: true })
+        .eq("competition_id", competitionId);
+
+    if (error) throw error;
+
+    return (count ?? 0) === 0;
+}
+
+
 // ============================================================================
 // COMPETITIONS
 // ============================================================================
@@ -246,6 +262,32 @@ export async function updateCompetition(
     if (error) throw error;
 }
 
+export async function deleteCompetition(
+    competitionId: string
+) {
+    if (!client) throw new Error("Supabase not ready");
+
+    // HARD SAFETY CHECK
+    const { count } = await client
+        .from("competition_competitor")
+        .select("*", { count: "exact", head: true })
+        .eq("competition_id", competitionId);
+
+    if ((count ?? 0) > 0) {
+        throw new Error("Competition has registrations and cannot be deleted");
+    }
+
+    await client.from("competition_day").delete().eq("competition_id", competitionId);
+    await client.from("competition_species").delete().eq("competition_id", competitionId);
+    await client.from("competition_division").delete().eq("competition_id", competitionId);
+    await client.from("competition_briefing").delete().eq("competition_id", competitionId);
+    await client.from("competition_fees").delete().eq("competition_id", competitionId);
+    await client.from("prize").delete().eq("competition_id", competitionId);
+    await client.from("competition_organisation").delete().eq("competition_id", competitionId);
+    await client.from("competition").delete().eq("id", competitionId);
+}
+
+
 // ============================================================================
 // LOOKUPS
 // ============================================================================
@@ -285,6 +327,7 @@ export async function listPrizeModes(): Promise<PrizeModeRow[]> {
 // - Preserves legacy fields
 // - Guarantees at least one day
 // - Supports sort_order + cutoff times
+// - Safe against duplicate inserts / reloads
 // ============================================================================
 
 export async function listCompetitionDays(
@@ -293,6 +336,7 @@ export async function listCompetitionDays(
 ): Promise<CompetitionDay[]> {
     if (!client) throw new Error("Supabase not ready");
 
+    // 1️⃣ Load existing days first
     const { data, error } = await client
         .from("competition_day")
         .select("*")
@@ -302,29 +346,42 @@ export async function listCompetitionDays(
 
     if (error) throw error;
 
-    // ✅ Guarantee Day 1 (legacy behaviour)
-    if (!data || data.length === 0) {
-        const today = new Date().toISOString().slice(0, 10);
-
-        const { data: created, error: insertErr } = await client
-            .from("competition_day")
-            .insert({
-                competition_id: competitionId,
-                day_date: today,
-                sort_order: 1,
-                fishing_start_type: "None",
-                fishing_end_type: "None",
-                weighin_type: "None",
-                overnight_allowed: false,
-            })
-            .select()
-            .single();
-
-        if (insertErr) throw insertErr;
-        return [created];
+    // 2️⃣ If days already exist, return them
+    if (data && data.length > 0) {
+        return data;
     }
 
-    return data;
+    // 3️⃣ Otherwise, attempt to create Day 1
+    const today = new Date().toISOString().slice(0, 10);
+
+    const { error: insertErr } = await client
+        .from("competition_day")
+        .insert({
+            competition_id: competitionId,
+            day_date: today,
+            sort_order: 1,
+            fishing_start_type: "None",
+            fishing_end_type: "None",
+            weighin_type: "None",
+            overnight_allowed: false,
+        });
+
+    // ⛑ Ignore duplicate key errors (race / reload safety)
+    if (insertErr && insertErr.code !== "23505") {
+        throw insertErr;
+    }
+
+    // 4️⃣ Re-fetch after insert (or if it already existed)
+    const { data: retry, error: retryErr } = await client
+        .from("competition_day")
+        .select("*")
+        .eq("competition_id", competitionId)
+        .order("sort_order", { ascending: true })
+        .order("day_date", { ascending: true });
+
+    if (retryErr) throw retryErr;
+
+    return retry ?? [];
 }
 
 export async function addCompetitionDay(
@@ -404,7 +461,6 @@ export async function deleteCompetitionDay(dayId: string) {
 
     if (error) throw error;
 }
-
 
 // ============================================================================
 // SPECIES
@@ -636,6 +692,41 @@ export async function upsertCompetitionFees(
 
     if (error) throw error;
     return data;
+}
+
+// ============================================================================
+// PRIZES (REQUIRED FOR PRIZE GIVING)
+// ============================================================================
+
+export async function listPrizesForCompetition(
+    organisationId: string,
+    competitionId: string
+) {
+    if (!client) throw new Error("Supabase not ready");
+
+    const { data, error } = await client
+        .from("prize")
+        .select(`
+            id,
+            competition_id,
+            species_id,
+            rank,
+            label,
+            sponsor,
+            division_id,
+            division:division_id (
+                id,
+                code,
+                name,
+                sort_order,
+                is_default
+            )
+        `)
+        .eq("competition_id", competitionId)
+        .order("rank");
+
+    if (error) throw error;
+    return data ?? [];
 }
 
 // ============================================================================

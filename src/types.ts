@@ -64,15 +64,16 @@ export interface CompetitionType {
     description: string | null;
 }
 
-export interface CompMode {
+export type CompMode = {
     id: string;
-    name: "weight" | "length" | "mixed";
-}
+    name: string;
+};
 
-export interface PrizeMode {
+export type PrizeMode = {
     id: string;
-    name: "combined" | "split";
-}
+    name: string;
+};
+
 
 // ================================================================
 // COMPETITION

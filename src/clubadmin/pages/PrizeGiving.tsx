@@ -1,355 +1,211 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 
+import { listCompetitions } from "@/clubadmin/api/competitions";
 import {
-    fetchSettings,
-    listCompetitions,
-    listCompetitionSpecies,
-    listFishJoinedForCompetition,
-    getCompetition,
-    listPrizesForCompetition,
-} from "@/services/api";
+    loadPrizeGivingData,
+    Division,
+    Species,
+    Entry,
+    Prize,
+} from "@/clubadmin/api/prizeGiving";
 
 import "./PrizeGivingPrint.css";
 
-/* ======================================================================
-   TYPES
-   ====================================================================== */
-
-type PrizeMode = "combined" | "split";
-type Category = "combined" | "adult" | "junior";
-
-type PrizeCell = {
-    label: string;
-    sponsor: string | null;
-};
-
 type PrizeMap = Record<
-    number,
-    {
-        combined: Record<number, PrizeCell>;
-        adult: Record<number, PrizeCell>;
-        junior: Record<number, PrizeCell>;
-    }
+    string, // division_id
+    Record<number, Record<number, Prize>> // species_id → rank → prize
 >;
-
-/* ======================================================================
-   COMPONENT
-   ====================================================================== */
 
 export default function PrizeGiving() {
     const { organisationId } = useParams<{ organisationId: string }>();
 
     const [competitionId, setCompetitionId] = useState("");
     const [competitions, setCompetitions] = useState<any[]>([]);
-    const [settings, setSettings] = useState<any>(null);
-    const [species, setSpecies] = useState<any[]>([]);
-    const [entries, setEntries] = useState<any[]>([]);
+
+    const [species, setSpecies] = useState<Species[]>([]);
+    const [entries, setEntries] = useState<Entry[]>([]);
+    const [divisions, setDivisions] = useState<Division[]>([]);
     const [prizeMap, setPrizeMap] = useState<PrizeMap>({});
-    const [prizeMode, setPrizeMode] = useState<PrizeMode>("combined");
 
-    // 🔀 View toggle (only relevant when split)
-    const [viewCategory, setViewCategory] =
-        useState<Category>("combined");
+    const [activeDivision, setActiveDivision] = useState<Division | null>(
+        null
+    );
+    const [compMode, setCompMode] =
+        useState<"weight" | "length">("weight");
 
-    /* -------------------------------------------------- */
-    /* Load competitions + settings */
-    /* -------------------------------------------------- */
+    /* --------------------------------------------------
+       Load competitions
+    -------------------------------------------------- */
     useEffect(() => {
-        if (!organisationId) return;
-
-        listCompetitions(organisationId).then(setCompetitions);
-        fetchSettings().then(setSettings);
+        if (organisationId) {
+            listCompetitions(organisationId).then(setCompetitions);
+        }
     }, [organisationId]);
 
-    /* -------------------------------------------------- */
-    /* Load species, entries, prizes */
-    /* -------------------------------------------------- */
+    /* --------------------------------------------------
+       Load prize giving data
+    -------------------------------------------------- */
     useEffect(() => {
         if (!organisationId || !competitionId) return;
 
-        (async () => {
-            try {
-                const [comp, spRows, results, prizeRows] = await Promise.all([
-                    getCompetition(organisationId, competitionId),
-                    listCompetitionSpecies(organisationId, competitionId),
-                    listFishJoinedForCompetition(competitionId),
-                    listPrizesForCompetition(organisationId, competitionId),
-                ]);
+        loadPrizeGivingData(organisationId, competitionId).then((data) => {
+            setSpecies(data.species);
+            setEntries(data.entries);
+            setDivisions(data.divisions);
+            setCompMode(data.competition.comp_mode);
+            setActiveDivision(data.divisions[0] ?? null);
 
-                const mode: PrizeMode =
-                    comp.prize_mode?.name === "split"
-                        ? "split"
-                        : "combined";
-
-                setPrizeMode(mode);
-
-                // ✅ Enforce valid view
-                setViewCategory(mode === "split" ? "junior" : "combined");
-
-                const sp = spRows.map((r: any) => r.species);
-                setSpecies(sp);
-                setEntries(results);
-
-                const map: PrizeMap = {};
-                for (const s of sp) {
-                    map[s.id] = { combined: {}, adult: {}, junior: {} };
-                }
-
-                for (const p of prizeRows) {
-                    const cat: Category =
-                        p.for_category === "adult" || p.for_category === "junior"
-                            ? p.for_category
-                            : "combined";
-
-                    if (!map[p.species_id]) continue;
-
-                    map[p.species_id][cat][p.rank] = {
-                        label: p.label ?? "",
-                        sponsor: p.sponsor ?? null,
-                    };
-                }
-
-                setPrizeMap(map);
-            } catch (err) {
-                console.error("❌ Failed to load Prize Giving data", err);
-            }
-        })();
+            const map: PrizeMap = {};
+            data.prizes.forEach((p) => {
+                map[p.division_id] ??= {};
+                map[p.division_id][p.species_id] ??= {};
+                map[p.division_id][p.species_id][p.rank] = p;
+            });
+            setPrizeMap(map);
+        });
     }, [organisationId, competitionId]);
 
-    /* -------------------------------------------------- */
-    /* Helpers */
-    /* -------------------------------------------------- */
-
-    function parseWeighIn(ts?: string | null) {
-        if (!ts) return Number.POSITIVE_INFINITY;
-        const n = Date.parse(ts);
-        return Number.isNaN(n) ? Number.POSITIVE_INFINITY : n;
+    /* --------------------------------------------------
+    Helpers
+ -------------------------------------------------- */
+    function entriesForDivision(
+        list: Entry[],
+        division: Division
+    ): Entry[] {
+        return list.filter(
+            (e) => e.division_id === division.id
+        );
     }
 
-    function rankEntries(arr: any[]) {
-        const mode = settings?.compMode ?? "weight";
+    function rankFish(list: Entry[]) {
+        return [...list].sort((a, b) => {
+            const va =
+                compMode === "length"
+                    ? a.length_cm ?? 0
+                    : a.weight_kg ?? 0;
+            const vb =
+                compMode === "length"
+                    ? b.length_cm ?? 0
+                    : b.weight_kg ?? 0;
 
-        return arr.slice().sort((a, b) => {
-            const pa =
-                mode === "measure" ? a.length_cm || 0 : a.weight_kg || 0;
-            const pb =
-                mode === "measure" ? b.length_cm || 0 : b.weight_kg || 0;
+            if (vb !== va) return vb - va;
 
-            if (pb !== pa) return pb - pa;
-            return parseWeighIn(a.created_at) - parseWeighIn(b.created_at);
+            return (
+                Date.parse(a.priority_timestamp) -
+                Date.parse(b.priority_timestamp)
+            );
         });
     }
 
-    function competitorForPlace(ranked: any[], place: number) {
-        return ranked[place - 1] ?? null;
-    }
-
-    /* -------------------------------------------------- */
-    /* Render */
-    /* -------------------------------------------------- */
-
+    /* --------------------------------------------------
+       Render
+    -------------------------------------------------- */
     return (
         <section className="card prize-giving">
+            <h2>Prize Giving</h2>
 
-            {/* ================= HEADER ================= */}
-            <h2
-                style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: 16,
-                    marginBottom: 12,
-                }}
+            <select
+                value={competitionId}
+                onChange={(e) => setCompetitionId(e.target.value)}
             >
-                {/* LEFT: Dynamic title */}
-                <span>
-                    Prize Giving
-                    {prizeMode === "split" && viewCategory !== "combined" && (
-                        <> – {viewCategory === "junior" ? "Junior" : "Adult"}</>
-                    )}
-                </span>
+                <option value="">-- Select Competition --</option>
+                {competitions.map((c) => (
+                    <option key={c.id} value={c.id}>
+                        {c.name}
+                    </option>
+                ))}
+            </select>
 
-                {/* RIGHT: Controls (hidden in print via CSS) */}
-                <div
-                    style={{
-                        display: "flex",
-                        gap: 8,
-                        alignItems: "center",
-                    }}
-                    className="no-print"
-                >
-                    <select
-                        value={competitionId}
-                        onChange={(e) => setCompetitionId(e.target.value)}
-                        style={{ maxWidth: 320 }}
-                    >
-                        <option value="">-- Select Competition --</option>
-                        {competitions
-                            .slice()
-                            .sort(
-                                (a, b) =>
-                                    new Date(b.starts_at).getTime() -
-                                    new Date(a.starts_at).getTime()
-                            )
-                            .map((c) => (
-                                <option key={c.id} value={c.id}>
-                                    {c.name}
-                                </option>
-                            ))}
-                    </select>
-
-                    <button
-                        className="btn btn-secondary"
-                        onClick={() => window.print()}
-                        disabled={!competitionId}
-                    >
-                        Print
-                    </button>
-                </div>
-            </h2>
-
-
-            {/* ================= CATEGORY TOGGLE ================= */}
-            {prizeMode === "split" && (
-                <div
-                    style={{
-                        display: "flex",
-                        gap: 6,
-                        marginBottom: 16,
-                    }}
-                >
-                    {(["junior", "adult"] as Category[]).map((c) => (
+            {divisions.length > 1 && (
+                <div className="division-tabs">
+                    {divisions.map((d) => (
                         <button
-                            key={c}
+                            key={d.id}
                             className={
-                                viewCategory === c
+                                activeDivision?.id === d.id
                                     ? "btn"
                                     : "btn btn-secondary"
                             }
-                            onClick={() => setViewCategory(c)}
+                            onClick={() => setActiveDivision(d)}
                         >
-                            {c === "junior" ? "Junior" : "Adult"}
+                            {d.name}
                         </button>
                     ))}
                 </div>
             )}
 
-            {/* ================= RESULTS ================= */}
-            {species.map((s) => {
-                const allEntries = entries.filter(
-                    (e) => e.species?.id === s.id
-                );
+            {activeDivision &&
+                species.map((s) => {
+                    const prizes =
+                        prizeMap[activeDivision.id]?.[s.id];
+                    if (!prizes) return null;
 
-                const prizeNode = prizeMap[s.id];
-                if (!prizeNode) return null;
+                    const places = Object.keys(prizes)
+                        .map(Number)
+                        .sort((a, b) => b - a);
 
-                const category: Category =
-                    prizeMode === "split" ? viewCategory : "combined";
+                    const ranked = rankFish(
+                        entriesForDivision(
+                            entries.filter(
+                                (e) => e.species_id === s.id
+                            ),
+                            activeDivision
+                        )
+                    );
 
-                const relevantEntries =
-                    category === "combined"
-                        ? allEntries
-                        : allEntries.filter(
-                            (e) =>
-                                e.competitor?.category === category
-                        );
+                    return (
+                        <section key={s.id}>
+                            <h3>{s.name}</h3>
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Place</th>
+                                        <th>Angler</th>
+                                        <th>
+                                            {compMode === "length"
+                                                ? "Length (cm)"
+                                                : "Weight (kg)"}
+                                        </th>
+                                        <th>Prize</th>
+                                        <th>Sponsor</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {places.map((place) => {
+                                        const fish =
+                                            ranked[place - 1];
+                                        const prize =
+                                            prizes[place];
 
-                const prizes = prizeNode[category];
-                const places = Object.keys(prizes)
-                    .map(Number)
-                    .sort((a, b) => b - a); // 3 → 2 → 1
-
-                if (!places.length) return null;
-
-                const ranked = rankEntries(relevantEntries).slice(
-                    0,
-                    Math.max(...places)
-                );
-
-                return (
-                    <section className="card" key={s.id}>
-                        <h3>{s.name}</h3>
-
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Place</th>
-                                    <th>Competitor</th>
-                                    <th>
-                                        {settings?.compMode === "measure"
-                                            ? "Length (cm)"
-                                            : "Weight (kg)"}
-                                    </th>
-                                    <th>Date</th>
-                                    <th>Time</th>
-                                    <th>Prize</th>
-                                    <th>Sponsor</th>
-                                </tr>
-                            </thead>
-
-                            <tbody>
-                                {places.map((place) => {
-                                    const c = competitorForPlace(
-                                        ranked,
-                                        place
-                                    );
-
-                                    if (!c) {
                                         return (
                                             <tr key={place}>
                                                 <td>{place}</td>
-                                                <td
-                                                    colSpan={6}
-                                                    className="muted"
-                                                >
-                                                    — no qualified entry —
+                                                <td>
+                                                    {fish?.competitor_name ??
+                                                        "—"}
+                                                </td>
+                                                <td>
+                                                    {fish
+                                                        ? compMode ===
+                                                            "length"
+                                                            ? fish.length_cm
+                                                            : fish.weight_kg
+                                                        : "—"}
+                                                </td>
+                                                <td>{prize.label}</td>
+                                                <td>
+                                                    {prize.sponsor ??
+                                                        "—"}
                                                 </td>
                                             </tr>
                                         );
-                                    }
-
-                                    const prize = prizes[place];
-                                    const dt = new Date(c.created_at);
-
-                                    return (
-                                        <tr key={place}>
-                                            <td>{place}</td>
-                                            <td>
-                                                {c.competitor?.full_name}
-                                            </td>
-                                            <td>
-                                                {settings?.compMode ===
-                                                    "measure"
-                                                    ? c.length_cm
-                                                    : c.weight_kg}
-                                            </td>
-                                            <td>
-                                                {dt.toLocaleDateString(
-                                                    "en-NZ"
-                                                )}
-                                            </td>
-                                            <td>
-                                                {dt.toLocaleTimeString(
-                                                    "en-NZ",
-                                                    {
-                                                        hour: "2-digit",
-                                                        minute: "2-digit",
-                                                    }
-                                                )}
-                                            </td>
-                                            <td>{prize?.label}</td>
-                                            <td>
-                                                {prize?.sponsor ?? "—"}
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </section>
-                );
-            })}
+                                    })}
+                                </tbody>
+                            </table>
+                        </section>
+                    );
+                })}
         </section>
     );
 }

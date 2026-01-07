@@ -6,7 +6,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-// 🔄 Migrated API import (clubadmin-scoped)
+// Club-admin scoped APIs
 import {
     addCompetition,
     listCompetitionTypes,
@@ -18,7 +18,13 @@ import {
    TYPES
    ========================================================================== */
 type Props = {
-    onClose?: () => void; // optional for modal usage
+    onClose?: () => void;
+};
+
+type Lookup = {
+    id: string;
+    name: string;
+    description?: string | null;
 };
 
 /* ============================================================================
@@ -35,14 +41,19 @@ export default function AddCompetition({ onClose }: Props) {
     const [saving, setSaving] = useState(false);
 
     // Lookups
-    const [competitionTypes, setCompetitionTypes] = useState<any[]>([]);
-    const [compModes, setCompModes] = useState<any[]>([]);
-    const [prizeModes, setPrizeModes] = useState<any[]>([]);
+    const [competitionTypes, setCompetitionTypes] = useState<Lookup[]>([]);
+    const [compModes, setCompModes] = useState<Lookup[]>([]);
+    const [prizeModes, setPrizeModes] = useState<Lookup[]>([]);
 
     // Selected values
     const [competitionTypeId, setCompetitionTypeId] = useState<string | null>(null);
     const [compModeId, setCompModeId] = useState<string | null>(null);
     const [prizeModeId, setPrizeModeId] = useState<string | null>(null);
+
+    // Modals / info
+    const [showDivisionModal, setShowDivisionModal] = useState(false);
+    const [infoOpen, setInfoOpen] =
+        useState<null | "type" | "mode" | "prize">(null);
 
     /* ============================================================
        LOAD LOOKUPS
@@ -59,11 +70,6 @@ export default function AddCompetition({ onClose }: Props) {
                 setCompetitionTypes(types);
                 setCompModes(modes);
                 setPrizeModes(prizes);
-
-                // Sensible defaults
-                if (types.length) setCompetitionTypeId(types[0].id);
-                if (modes.length) setCompModeId(modes[0].id);
-                if (prizes.length) setPrizeModeId(prizes[0].id);
             } catch (err) {
                 console.error(err);
                 alert("Failed to load competition configuration options");
@@ -102,12 +108,9 @@ export default function AddCompetition({ onClose }: Props) {
                 prize_mode_id: prizeModeId,
             });
 
-            // ✅ Navigate back to list
             navigate(`/clubadmin/${organisationId}/admin/competitions`, {
                 replace: true,
             });
-
-            // ✅ FORCE reload so parent list refreshes
             navigate(0);
         } catch (err) {
             console.error(err);
@@ -121,134 +124,201 @@ export default function AddCompetition({ onClose }: Props) {
        RENDER
        ============================================================ */
     return (
-        <section className="card admin-card">
-            {/* ================= HEADER ================= */}
-            <h2>Add Competition</h2>
+        <>
+            <section className="card admin-card">
+                <h2>Add Competition</h2>
 
-            <div style={{ marginBottom: 16 }}>
-                {!onClose && (
-                    <button className="btn btn--lg" onClick={close}>
-                        ← Back
+               
+                {/* ================= BASIC DETAILS ================= */}
+                <div className="form-grid">
+                    <div className="field span-6">
+                        <label>Name</label>
+                        <input
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            placeholder="Competition name"
+                        />
+                    </div>
+
+                    <div className="field span-3">
+                        <label>Start date</label>
+                        <input
+                            type="date"
+                            value={startsAt}
+                            onChange={(e) => setStartsAt(e.target.value)}
+                        />
+                    </div>
+
+                    <div className="field span-3">
+                        <label>End date</label>
+                        <input
+                            type="date"
+                            value={endsAt}
+                            onChange={(e) => setEndsAt(e.target.value)}
+                        />
+                    </div>
+                </div>
+
+                {/* ================= RULES ================= */}
+                <div className="form-grid" style={{ marginTop: 16 }}>
+                    {/* Competition Type */}
+                    <div className="field span-6">
+                        <label className="field-label-row">
+                            <span>Competition type</span>
+                            <button
+                                type="button"
+                                className="info-btn"
+                                onClick={() =>
+                                    setInfoOpen(infoOpen === "type" ? null : "type")
+                                }
+                            >
+                                ⓘ
+                            </button>
+                        </label>
+
+                        <select
+                            value={competitionTypeId ?? ""}
+                            onChange={(e) =>
+                                setCompetitionTypeId(e.target.value || null)
+                            }
+                        >
+                            <option value="">Select competition type</option>
+                            {competitionTypes.map((t) => (
+                                <option key={t.id} value={t.id}>
+                                    {t.name}
+                                </option>
+                            ))}
+                        </select>
+
+                        {infoOpen === "type" && (
+                            <div className="info-popover">
+                                {competitionTypeId
+                                    ? competitionTypes.find(
+                                        (t) => t.id === competitionTypeId
+                                    )?.description
+                                    : "Defines the overall structure and rules of the competition."}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Competition Mode */}
+                    <div className="field span-6">
+                        <label className="field-label-row">
+                            <span>Competition mode</span>
+                            <button
+                                type="button"
+                                className="info-btn"
+                                onClick={() =>
+                                    setInfoOpen(infoOpen === "mode" ? null : "mode")
+                                }
+                            >
+                                ⓘ
+                            </button>
+                        </label>
+
+                        <select
+                            value={compModeId ?? ""}
+                            onChange={(e) =>
+                                setCompModeId(e.target.value || null)
+                            }
+                        >
+                            <option value="">Select competition mode</option>
+                            {compModes.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                    {m.name}
+                                </option>
+                            ))}
+                        </select>
+
+                        {infoOpen === "mode" && (
+                            <div className="info-popover">
+                                How fish are officially recorded and ranked.
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Prize Grouping */}
+                    <div className="field span-6">
+                        <label className="field-label-row">
+                            <span>Prize grouping</span>
+                            <button
+                                type="button"
+                                className="info-btn"
+                                onClick={() =>
+                                    setInfoOpen(infoOpen === "prize" ? null : "prize")
+                                }
+                            >
+                                ⓘ
+                            </button>
+                        </label>
+
+                        <select
+                            value={prizeModeId ?? ""}
+                            onChange={(e) =>
+                                setPrizeModeId(e.target.value || null)
+                            }
+                        >
+                            <option value="">Select prize grouping</option>
+                            {prizeModes.map((p) => (
+                                <option key={p.id} value={p.id}>
+                                    {p.name}
+                                </option>
+                            ))}
+                        </select>
+
+                        {infoOpen === "prize" && (
+                            <div className="info-popover">
+                                Whether prizes are combined or split into divisions
+                                (e.g. Adult / Junior).
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* ================= ACTIONS ================= */}
+                <div className="actions span-12" style={{ marginTop: 24 }}>
+                    <button className="btn" onClick={close}>
+                        Cancel
                     </button>
-                )}
-            </div>
 
-            {/* ================= BASIC DETAILS ================= */}
-            <div className="form-grid">
-                <div className="field span-6">
-                    <label>Name</label>
-                    <input
-                        type="text"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        placeholder="Competition name"
-                    />
-                </div>
-
-                <div className="field span-3">
-                    <label>Start date</label>
-                    <input
-                        type="date"
-                        value={startsAt}
-                        onChange={(e) => setStartsAt(e.target.value)}
-                    />
-                </div>
-
-                <div className="field span-3">
-                    <label>End date</label>
-                    <input
-                        type="date"
-                        value={endsAt}
-                        onChange={(e) => setEndsAt(e.target.value)}
-                    />
-                </div>
-            </div>
-
-            {/* ================= COMPETITION RULES ================= */}
-            <div className="form-grid" style={{ marginTop: 16 }}>
-                {/* Competition Type */}
-                <div className="field span-6">
-                    <label>Competition type</label>
-                    <select
-                        value={competitionTypeId ?? ""}
-                        onChange={(e) => setCompetitionTypeId(e.target.value)}
-                    >
-                        {competitionTypes.map((t) => (
-                            <option key={t.id} value={t.id}>
-                                {t.name}
-                            </option>
-                        ))}
-                    </select>
-                    <p className="muted" style={{ marginTop: 4 }}>
-                        {
-                            competitionTypes.find(
-                                (t) => t.id === competitionTypeId
-                            )?.description
+                    <button
+                        className="btn primary btn--lg"
+                        disabled={
+                            saving ||
+                            !name ||
+                            !startsAt ||
+                            !endsAt ||
+                            !competitionTypeId ||
+                            !compModeId ||
+                            !prizeModeId
                         }
-                    </p>
-                </div>
-
-                {/* Competition Mode */}
-                <div className="field span-6">
-                    <label>Competition mode</label>
-                    <select
-                        value={compModeId ?? ""}
-                        onChange={(e) => setCompModeId(e.target.value)}
+                        onClick={save}
                     >
-                        {compModes.map((m) => (
-                            <option key={m.id} value={m.id}>
-                                {m.name === "weight" && "Weight (weigh-in)"}
-                                {m.name === "length" && "Length (measure / photo)"}
-                                {m.name === "mixed" && "Both (weight & length)"}
-                            </option>
-                        ))}
-                    </select>
-                    <p className="muted" style={{ marginTop: 4 }}>
-                        How fish are recorded and ranked for results.
-                    </p>
+                        {saving ? "Saving…" : "Save Competition"}
+                    </button>
                 </div>
+            </section>
 
-                {/* Prize Mode */}
-                <div className="field span-6">
-                    <label>Prize grouping</label>
-                    <select
-                        value={prizeModeId ?? ""}
-                        onChange={(e) => setPrizeModeId(e.target.value)}
-                    >
-                        {prizeModes.map((p) => (
-                            <option key={p.id} value={p.id}>
-                                {p.name}
-                            </option>
-                        ))}
-                    </select>
-                    <p className="muted" style={{ marginTop: 4 }}>
-                        Whether prizes are combined or split (e.g. Adults / Juniors).
-                    </p>
+            {/* ================= DIVISION MODAL (placeholder) ================= */}
+            {showDivisionModal && (
+                <div className="modal-backdrop">
+                    <div className="modal card">
+                        <h3>Select divisions</h3>
+                        <p className="muted">
+                            Division selection will be configured here.
+                        </p>
+
+                        <div className="actions" style={{ marginTop: 24 }}>
+                            <button
+                                className="btn"
+                                onClick={() => setShowDivisionModal(false)}
+                            >
+                                Done
+                            </button>
+                        </div>
+                    </div>
                 </div>
-            </div>
-
-            {/* ================= ACTIONS ================= */}
-            <div className="actions span-12" style={{ marginTop: 24 }}>
-                <button className="btn" onClick={close}>
-                    Cancel
-                </button>
-
-                <button
-                    className="btn primary btn--lg"
-                    disabled={
-                        saving ||
-                        !name ||
-                        !startsAt ||
-                        !endsAt ||
-                        !competitionTypeId ||
-                        !compModeId ||
-                        !prizeModeId
-                    }
-                    onClick={save}
-                >
-                    {saving ? "Saving…" : "Save Competition"}
-                </button>
-            </div>
-        </section>
+            )}
+        </>
     );
 }

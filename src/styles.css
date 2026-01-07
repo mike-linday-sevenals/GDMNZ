@@ -142,7 +142,7 @@ a.btn {
     margin: -1px;
     overflow: hidden;
     clip: rect(0,0,0,0);
-    white-space: nowrap;
+   /* white-space: nowrap; */
     border: 0;
 }
 .input-icon {
@@ -611,4 +611,372 @@ table.data-table td {
 
 table.data-table .btn {
     margin: 0;
+}
+
+.edit-header {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.edit-header-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.edit-section-tabs {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+}
+
+.btn--ghost {
+    background: transparent;
+    border: 1px solid var(--border);
+}
+
+.edit-footer-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 24px;
+}
+
+.edit-title {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+}
+.edit-context {
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: rgba(14, 165, 233, 0.1);
+    color: var(--accent-strong);
+    font-size: 1.0rem;
+    font-weight: 600;
+    white-space: nowrap;
+    filter: saturate(0.85);
+}
+
+
+.prize-giving th,
+.prize-giving td {
+    padding: 8px 10px;
+    vertical-align: middle;
+    /* white-space: nowrap; */
+    /* overflow: hidden;
+    text-overflow: ellipsis;*/
+}
+
+    /* Place */
+    .prize-giving th:nth-child(1),
+    .prize-giving td:nth-child(1) {
+        width: 70px;
+        text-align: center;
+    }
+
+    /* Angler */
+    .prize-giving th:nth-child(2),
+    .prize-giving td:nth-child(2) {
+        width: 220px;
+    }
+
+    /* Weight / Length */
+    .prize-giving th:nth-child(3),
+    .prize-giving td:nth-child(3) {
+        width: 100px;
+        text-align: center;
+    }
+
+    /* Prize */
+    .prize-giving th:nth-child(4),
+    .prize-giving td:nth-child(4) {
+        width: auto; /* flex column */
+    }
+
+    /* Sponsor */
+    .prize-giving th:nth-child(5),
+    .prize-giving td:nth-child(5) {
+        width: 220px;
+    }
+    .prize-giving td:nth-child(4),
+    .prize-giving td:nth-child(5) {
+        line-height: 1.35;
+    }
+.prize-giving table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed; /* 🔒 keeps column widths consistent */
+}
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+}
+
+.modal {
+    width: 100%;
+    max-width: 420px;
+}
+
+.division-list {
+    display: grid;
+    gap: 8px;
+    margin: 16px 0;
+}
+
+.division-option {
+    display: flex;
+    gap: 8px;
+    padding: 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+}
+
+    .division-option.active {
+        background: var(--muted);
+    }
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+}
+
+.modal.card {
+    width: 100%;
+    max-width: 520px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+}
+.division-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 16px 0;
+    overflow-y: auto;
+}
+.division-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: white;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.15s ease;
+}
+
+    .division-row:hover {
+        border-color: var(--accent);
+        background: #f8fbff;
+    }
+
+    .division-row.is-selected {
+        border-color: var(--accent-strong);
+        background: #eef6ff;
+    }
+.division-checkbox {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    border: 2px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    color: white;
+    background: white;
+    flex-shrink: 0;
+}
+
+.division-row.is-selected .division-checkbox {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+.division-name {
+    font-weight: 500;
+    color: var(--text);
+}
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.field-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.info-btn {
+    background: none;
+    border: none;
+    font-size: 14px;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0;
+}
+
+    .info-btn:hover {
+        color: var(--accent);
+    }
+
+.info-popover {
+    margin-top: 6px;
+    padding: 8px 10px;
+    font-size: 13px;
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-muted);
+}
+/* ==========================================================================
+   FORM CONTROL NORMALISATION
+   ========================================================================== */
+
+input,
+select,
+textarea {
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.4;
+    color: var(--text);
+}
+
+    /* Placeholder / watermark text */
+    input::placeholder {
+        color: var(--text-muted);
+        font-weight: 400;
+    }
+
+/* Treat "Select ..." options like placeholders */
+select {
+    color: var(--text-muted);
+}
+
+    /* Once a real value is selected */
+    select:not([value=""]) {
+        color: var(--text);
+    }
+
+/* Explicitly style date inputs (browser override) */
+input[type="date"] {
+    color: var(--text);
+}
+
+    /* When date is empty, mimic placeholder look */
+    input[type="date"]:not(:focus):not([value]) {
+        color: var(--text-muted);
+    }
+
+/* Remove browser font weirdness */
+input[type="date"],
+select {
+    background-color: #fff;
+}
+.edit-footer-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 24px;
+}
+
+.edit-footer-left {
+    display: flex;
+    gap: 8px;
+}
+
+.edit-footer-right {
+    display: flex;
+    gap: 8px;
+}
+
+.delete-disabled .btn {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.delete-disabled p {
+    font-size: 0.85rem;
+}
+.edit-footer-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 24px;
+}
+.edit-footer-left {
+    display: flex;
+    align-items: center;
+}
+
+.edit-footer-right {
+    display: flex;
+    align-items: center;
+}
+
+.field-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+}
+
+.field-title {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+
+.badge-dirty {
+    padding: 4px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--danger);
+    background: #fff1f1;
+    color: #8a1f1f;
+    font-size: 12px;
+    font-weight: 500;
+}
+.division-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.division-control-row {
+    display: flex;
+    align-items: center; /* 👈 THIS fixes the vertical alignment */
+    justify-content: space-between;
+    min-height: 40px; /* matches input/select height */
+}
+
+.division-value {
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
