@@ -8,10 +8,10 @@
 //  - Child records are guaranteed by the API
 // ============================================================================
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 
-// Club-admin scoped APIs
+// Club-admin scoped APIs — competitions
 import {
     getCompetition,
     updateCompetition,
@@ -19,9 +19,6 @@ import {
     updateCompetitionDay,
     addCompetitionDay,
     deleteCompetitionDay,
-    listSpecies,
-    listCompetitionSpecies,
-    saveCompetitionSpecies,
     listCompetitionTypes,
     listCompModes,
     listPrizeModes,
@@ -30,6 +27,17 @@ import {
     canDeleteCompetition,
     deleteCompetition
 } from "@/clubadmin/api/competitions";
+
+// Club-admin scoped APIs — species
+import {
+    listSpecies,
+    listCompetitionSpecies,
+    saveCompetitionSpecies,
+    listFishTypesForCompetitionType,
+    listSpeciesByFishTypes
+} from "@/clubadmin/api/species";
+
+
 
 // Types
 import type {
@@ -90,9 +98,17 @@ export default function EditCompetition() {
 
     const [competitionDivisions, setCompetitionDivisions] =
         useState<Division[]>([]);
+    const [savedDivisionIds, setSavedDivisionIds] = useState<string[]>([]);
+
 
     const [allSpecies, setAllSpecies] = useState<Species[]>([]);
     const [selectedSpeciesIds, setSelectedSpeciesIds] = useState<number[]>([]);
+    const [allowedFishTypeIds, setAllowedFishTypeIds] = useState<string[]>([]);
+    const [activeFishTypeId, setActiveFishTypeId] = useState<string | null>(null);
+    const [speciesDirty, setSpeciesDirty] = useState(false);
+    const [savedSpeciesIds, setSavedSpeciesIds] = useState<number[]>([]);
+
+
 
     const [briefing, setBriefing] = useState<CompetitionBriefing>({
         briefing_date: null,
@@ -121,12 +137,36 @@ export default function EditCompetition() {
     // Save Dirty Data 
     const [divisionsDirty, setDivisionsDirty] = useState(false);
 
+    // ================================================================
+    // DERIVED DIRTY STATE (MUST BE ABOVE EFFECTS THAT USE IT)
+    // ================================================================
+
+    const pageDirty = speciesDirty || divisionsDirty;
+
+
+    // ================================================================
+    // WARN BEFORE UNLOAD IF UNSAVED CHANGES
+    // ================================================================
+
+    useEffect(() => {
+        if (!pageDirty) return;
+
+        const handler = (e: BeforeUnloadEvent) => {
+            e.preventDefault();
+            e.returnValue = "";
+        };
+
+        window.addEventListener("beforeunload", handler);
+        return () => window.removeEventListener("beforeunload", handler);
+    }, [pageDirty]);
 
 
 
     // =========================================================================
     // LOAD
     // =========================================================================
+
+
     useEffect(() => {
         if (!organisationId || !id) return;
 
@@ -153,6 +193,11 @@ export default function EditCompetition() {
                 const divisions = await listCompetitionDivisions(id);
                 setCompetitionDivisions(divisions);
 
+                const savedIds = divisions.map(d => d.id);
+                setSelectedDivisionIds(savedIds);
+                setSavedDivisionIds(savedIds);
+                setDivisionsDirty(false);
+
                 const b = await getCompetitionBriefing(organisationId, id);
                 if (b) {
                     setBriefing({
@@ -166,21 +211,49 @@ export default function EditCompetition() {
                 const all = await listDivisions();
                 setAllDivisions(all);
 
-                setSelectedDivisionIds(divisions.map(d => d.id));
-
                 const compDays = await listCompetitionDays(organisationId, id);
                 setDays(compDays);
 
-                const species = await listSpecies();
-                setAllSpecies(species);
+                // -----------------------------------------------------------------
+                // SPECIES: discipline + species loading
+                // -----------------------------------------------------------------
 
+                let loadedSpecies: Species[] = [];
+
+                if (comp.competition_type_id) {
+                    // 1️⃣ Resolve allowed fish types from competition type
+                    const fishTypes = await listFishTypesForCompetitionType(
+                        comp.competition_type_id
+                    );
+
+                    const fishTypeIds = fishTypes.map(ft => ft.fish_type_id);
+                    setAllowedFishTypeIds(fishTypeIds);
+
+                    // Default active discipline
+                    setActiveFishTypeId(fishTypeIds[0] ?? null);
+
+                    // 2️⃣ Load species scoped to allowed fish types
+                    loadedSpecies = await listSpeciesByFishTypes(fishTypeIds);
+                    setAllSpecies(loadedSpecies);
+                } else {
+                    // Safety fallback
+                    setAllowedFishTypeIds([]);
+                    setActiveFishTypeId(null);
+                    setAllSpecies([]);
+                }
+
+                // 3️⃣ Load persisted competition species
                 const compSpecies = await listCompetitionSpecies(
                     organisationId,
                     id
                 );
-                setSelectedSpeciesIds(
-                    compSpecies.map((s) => s.species.id)
-                );
+
+                const speciesIds = compSpecies.map(s => s.species.id);
+                setSelectedSpeciesIds(speciesIds);
+                setSavedSpeciesIds(speciesIds);
+                setSpeciesDirty(false);
+
+
             } catch (err) {
                 console.error(err);
                 alert("Unable to load competition");
@@ -190,9 +263,48 @@ export default function EditCompetition() {
         })();
     }, [organisationId, id]);
 
+
+
     // =========================================================================
     // HELPERS
     // =========================================================================
+
+    type SpeciesGroup = {
+        categoryName: string;
+        species: Species[];
+    };
+
+
+    const visibleSpecies = activeFishTypeId
+        ? allSpecies.filter(s => s.fish_type_id === activeFishTypeId)
+        : allSpecies;
+
+    /**
+     * Group visible species by species_category
+     */
+    const speciesByCategory = visibleSpecies.reduce<
+        Record<
+            string,
+            {
+                id: string;
+                name: string;
+                species: Species[];
+            }
+        >
+    >((acc, s) => {
+        const catId = s.species_category_id;
+
+        if (!acc[catId]) {
+            acc[catId] = {
+                id: catId,
+                name: s.species_category.name,
+                species: [],
+            };
+        }
+
+        acc[catId].species.push(s);
+        return acc;
+    }, {});
 
     function onFieldChange<K extends keyof Competition>(
         field: K,
@@ -210,12 +322,44 @@ export default function EditCompetition() {
     }
 
     function toggleSpecies(speciesId: number) {
-        setSelectedSpeciesIds((prev) =>
-            prev.includes(speciesId)
-                ? prev.filter((x) => x !== speciesId)
-                : [...prev, speciesId]
-        );
+        setSelectedSpeciesIds(prev => {
+            const next = prev.includes(speciesId)
+                ? prev.filter(id => id !== speciesId)
+                : [...prev, speciesId];
+
+            const isDirty =
+                next.length !== savedSpeciesIds.length ||
+                next.some(id => !savedSpeciesIds.includes(id));
+
+            setSpeciesDirty(isDirty);
+            return next;
+        });
     }
+
+
+    const groupedSpecies = useMemo<SpeciesGroup[]>(() => {
+        const map = new Map<string, SpeciesGroup>();
+
+        for (const s of visibleSpecies) {
+            const catId = s.species_category_id;
+            const catName = s.species_category?.name ?? "Other";
+
+            if (!map.has(catId)) {
+                map.set(catId, {
+                    categoryName: catName,
+                    species: [],
+                });
+            }
+
+            map.get(catId)!.species.push(s);
+        }
+
+        return Array.from(map.values()).sort((a, b) =>
+            a.categoryName.localeCompare(b.categoryName)
+        );
+    }, [visibleSpecies]);
+
+
 
     // =========================================================================
     // SAVE
@@ -234,13 +378,13 @@ export default function EditCompetition() {
                 prize_mode_id: competition.prize_mode_id ?? null,
             });
 
-            // ✅ NEW: persist competition divisions
+            // reset baseline
             await saveCompetitionDivisions(id, selectedDivisionIds);
+            setSavedDivisionIds(selectedDivisionIds);
+ 
             // 🔄 Sync persisted divisions back into state
             const updatedDivisions = await listCompetitionDivisions(id);
             setCompetitionDivisions(updatedDivisions);
-            // ✅ Divisions are no longer dirty
-            setDivisionsDirty(false);
 
             await upsertCompetitionBriefing(organisationId, id, briefing);
 
@@ -265,6 +409,14 @@ export default function EditCompetition() {
                 id,
                 selectedSpeciesIds
             );
+
+            // --------------------------------------------------
+            // ✅ CLEAR DIRTY STATE (authoritative reset)
+            // --------------------------------------------------
+            setSavedSpeciesIds(selectedSpeciesIds);
+            setSpeciesDirty(false);
+            setDivisionsDirty(false);
+
 
             setFeedbackMessage("Competition updated successfully.");
         } catch (err) {
@@ -326,6 +478,7 @@ export default function EditCompetition() {
             .filter(d => selectedDivisionIds.includes(d.id))
             .sort((a, b) => a.sort_order - b.sort_order)
         : competitionDivisions;
+
 
 
 
@@ -436,13 +589,20 @@ export default function EditCompetition() {
                                             key={d.id}
                                             className={`division-row ${selected ? "is-selected" : ""}`}
                                             onClick={() => {
-                                                setDivisionsDirty(true);
-                                                setSelectedDivisionIds(prev =>
-                                                    selected
+                                                setSelectedDivisionIds(prev => {
+                                                    const next = selected
                                                         ? prev.filter(id => id !== d.id)
-                                                        : [...prev, d.id]
-                                                );
+                                                        : [...prev, d.id];
+
+                                                    const isDirty =
+                                                        next.length !== savedDivisionIds.length ||
+                                                        next.some(id => !savedDivisionIds.includes(id));
+
+                                                    setDivisionsDirty(isDirty);
+                                                    return next;
+                                                });
                                             }}
+
                                         >
                                             <div className="division-checkbox">
                                                 {selected ? "✓" : ""}
@@ -461,12 +621,11 @@ export default function EditCompetition() {
                                     type="button"
                                     className="btn btn--ghost"
                                     onClick={() => {
+                                        setSelectedDivisionIds(savedDivisionIds);
                                         setDivisionsDirty(false);
-                                        setSelectedDivisionIds(
-                                            competitionDivisions.map(d => d.id)
-                                        );
                                         setShowDivisionModal(false);
                                     }}
+
                                 >
                                     Cancel
                                 </button>
@@ -610,10 +769,6 @@ export default function EditCompetition() {
                                     </div>
 
                                     <div className="division-actions">
-                                        {divisionsDirty && (
-                                            <span className="badge-dirty">Unsaved</span>
-                                        )}
-
                                         <button
                                             type="button"
                                             className="btn btn--sm"
@@ -879,28 +1034,83 @@ export default function EditCompetition() {
                 {/* ================= SPECIES ================= */}
                 {activeSection === "species" && (
                     <section className="card">
-                        <h3>Eligible Species</h3>
+                        {/* ================= HEADER ROW ================= */}
+                        <div className="species-header-row">
+                            <div className="species-title">
+                                <h3>Eligible Species</h3>
+                        </div>
 
-                        <div className="species-grid">
-                            {allSpecies.map((s) => {
-                                const checked = selectedSpeciesIds.includes(s.id);
-                                return (
-                                    <label
-                                        key={s.id}
-                                        className={`species-tile ${checked ? "active" : ""}`}
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            checked={checked}
-                                            onChange={() => toggleSpecies(s.id)}
-                                        />
-                                        <span>{s.name}</span>
-                                    </label>
-                                );
-                            })}
+                            {allowedFishTypeIds.length > 1 && (
+                                <div className="species-discipline-toggle">
+                                    {allowedFishTypeIds.map((fishTypeId) => {
+                                        const count = selectedSpeciesIds.filter(id =>
+                                            allSpecies.some(
+                                                s =>
+                                                    s.id === id &&
+                                                    s.fish_type_id === fishTypeId
+                                            )
+                                        ).length;
+
+                                    return (
+                                            <button
+                                                key={fishTypeId}
+                                                type="button"
+                                                className={`btn btn--sm ${activeFishTypeId === fishTypeId ? "primary" : ""
+                                                    }`}
+                                                onClick={() => setActiveFishTypeId(fishTypeId)}
+                                            >
+                                                {fishTypeId === allowedFishTypeIds[0]
+                                                    ? "Game Fishing"
+                                                    : "Sport Fishing"}
+                                                {count > 0 && ` (${count})`}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+
+
+                        {/* ================= SPECIES BY CATEGORY ================= */}
+                        <div className="species-category-list">
+                            {groupedSpecies.map(group => (
+                                <section
+                                    key={group.categoryName}
+                                    className="species-category"
+                                >
+                                    <h4 className="species-category-title">
+                                        {group.categoryName}
+                                    </h4>
+
+                                    <div className="species-grid">
+                                        {group.species.map(s => {
+                                            const checked =
+                                                selectedSpeciesIds.includes(s.id);
+
+                                            return (
+                                                <label
+                                                    key={s.id}
+                                                    className={`species-tile ${checked ? "active" : ""
+                                                        }`}
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={checked}
+                                                        onChange={() =>
+                                                            toggleSpecies(s.id)
+                                                        }
+                                                    />
+                                                    <span>{s.name}</span>
+                                                </label>
+                                            );
+                                        })}
+                                    </div>
+                                </section>
+                            ))}
                         </div>
                     </section>
                 )}
+
 
                 {/* ================= FOOTER DIVIDER ================= */}
                 <hr className="edit-footer-divider" />
@@ -935,6 +1145,12 @@ export default function EditCompetition() {
                     </div>
 
                     <div className="edit-footer-right">
+                        {pageDirty && (
+                            <span className="save-warning">
+                                Unsaved changes
+                            </span>
+                        )}
+
                         <button
                             className="btn primary btn--lg"
                             onClick={saveChanges}
@@ -945,7 +1161,6 @@ export default function EditCompetition() {
                     </div>
                 </div>
             </section>
-            );
         </>
-    )
+    );
 }

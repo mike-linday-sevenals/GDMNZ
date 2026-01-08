@@ -980,3 +980,69 @@ select {
     align-items: center;
     gap: 8px;
 }
+
+/* ============================================================
+   Species header + discipline toggles
+   ============================================================ */
+
+.species-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    gap: 16px;
+}
+
+    .species-header-row h3 {
+        margin: 0;
+    }
+
+.species-discipline-toggle {
+    display: flex;
+    gap: 8px;
+}
+
+
+.save-warning {
+    margin-right: 12px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #b45309; /* amber / warning */
+}
+
+.save-warning {
+    margin-right: 12px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: #fff7ed;
+    border: 1px solid #fcd34d;
+    font-size: 13px;
+    font-weight: 500;
+    color: #92400e;
+}
+
+/* ===============================
+   Save warning (footer)
+   =============================== */
+
+.save-warning {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    margin-right: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #92400e; /* amber-900 */
+    background: #fef3c7; /* amber-100 */
+    border: 1px solid #fde68a; /* amber-300 */
+    border-radius: 999px;
+}
+
+.edit-footer-actions .btn.primary {
+    transition: box-shadow 0.2s ease;
+}
+
+.edit-footer-actions .save-warning + .btn.primary {
+    box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.25);
+}

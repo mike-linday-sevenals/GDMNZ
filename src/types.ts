@@ -22,7 +22,17 @@ export interface Species {
     id: number;
     name: string;
     is_measure?: boolean;
+
+    fish_type_id: string;
+    species_category_id: string;
+
+    species_category: {
+        species_category_id: string;
+        name: string;
+    };
 }
+
+
 
 export type Competitor = {
     id: string;
