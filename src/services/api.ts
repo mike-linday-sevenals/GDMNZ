@@ -183,7 +183,7 @@ export async function listSpecies(): Promise<Species[]> {
             id: i + 1,
             name,
             is_measure: false
-        }));
+        })) as Species[];
     }
 
     const { data, error } = await client

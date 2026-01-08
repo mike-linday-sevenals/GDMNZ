@@ -18,6 +18,7 @@ export interface Settings {
     activeSpeciesIds?: number[];
 }
 
+
 export interface Species {
     id: number;
     name: string;

@@ -471,12 +471,39 @@ export async function listSpecies(): Promise<Species[]> {
 
     const { data, error } = await client
         .from("species")
-        .select("id, name, is_measure")
+        .select(`
+            id,
+            name,
+            is_measure,
+            fish_type_id,
+            species_category_id,
+            species_category (
+                id,
+                name
+            )
+        `)
         .order("name");
 
     if (error) throw error;
-    return data ?? [];
+    return (data ?? []).map((row: any) => ({
+        id: row.id,
+        name: row.name,
+        is_measure: row.is_measure,
+        fish_type_id: row.fish_type_id,
+        species_category_id: row.species_category_id,
+        species_category: Array.isArray(row.species_category)
+            ? {
+                species_category_id: row.species_category[0]?.id,
+                name: row.species_category[0]?.name,
+            }
+            : {
+                species_category_id: row.species_category?.id,
+                name: row.species_category?.name,
+            },
+    }));
+
 }
+
 
 // ============================================================================
 // COMPETITION SPECIES
