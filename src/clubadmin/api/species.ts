@@ -3,9 +3,6 @@
 // Path: src/clubadmin/api/species.ts
 // Description:
 // Club-admin scoped Species & Fish Type API
-// - Global species lookups
-// - Competition-type → fish-type resolution
-// - Competition ↔ species persistence
 // ============================================================================
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
@@ -37,14 +34,21 @@ export const client: SupabaseClient | null =
 // TYPES
 // ============================================================================
 
-export type CompetitionSpeciesRow = {
-    id: string;
-    species: Species;
-};
-
 export type FishType = {
     fish_type_id: string;
     name: string;
+};
+
+// Shape required by PrizeWizardModal
+export type CompetitionSpecies = {
+    id: number;
+    name: string;
+
+    fish_type_id: string;
+    fish_type_name: string; // ✅ IMPORTANT: human-readable label
+
+    species_category_id: string | null;
+    species_category: { name: string } | null;
 };
 
 // ============================================================================
@@ -52,9 +56,7 @@ export type FishType = {
 // ============================================================================
 
 /**
- * Returns all active species.
- * NOTE: This is intentionally minimal and mirrors existing behaviour.
- * Extended filtering should use listSpeciesByFishTypes().
+ * Returns all active species with fish type + category.
  */
 export async function listSpecies(): Promise<Species[]> {
     if (!client) return [];
@@ -68,10 +70,11 @@ export async function listSpecies(): Promise<Species[]> {
             fish_type_id,
             species_category_id,
             species_category:species_category_id (
-                id,
+                species_category_id,
                 name
             )
         `)
+        .eq("is_active", true)
         .order("name");
 
     if (error) throw error;
@@ -84,14 +87,12 @@ export async function listSpecies(): Promise<Species[]> {
     }));
 }
 
-
 // ============================================================================
 // COMPETITION TYPE → FISH TYPE
 // ============================================================================
 
 /**
  * Returns the fish types allowed for a given competition type.
- * This is driven by competition_type_fish_type.
  */
 export async function listFishTypesForCompetitionType(
     competitionTypeId: string
@@ -123,7 +124,6 @@ export async function listFishTypesForCompetitionType(
 
 /**
  * Returns species filtered by one or more fish types.
- * Used for discipline-based configuration (Game / Sport / etc).
  */
 export async function listSpeciesByFishTypes(
     fishTypeIds: string[]
@@ -158,47 +158,76 @@ export async function listSpeciesByFishTypes(
     }));
 }
 
-
 // ============================================================================
-// COMPETITION ↔ SPECIES (PERSISTENCE)
+// COMPETITION ↔ SPECIES (CRITICAL FOR PRIZES)
 // ============================================================================
 
 /**
- * Returns the species currently configured for a competition.
- * NOTE: organisationId is accepted for signature parity, but not used yet.
+ * Returns the species configured for a competition.
+ *
+ * IMPORTANT:
+ * - Includes fish_type_id AND fish_type_name
+ * - Includes species_category for grouping
+ * - Shape is consumed directly by PrizeWizardModal
  */
 export async function listCompetitionSpecies(
-    organisationId: string,
     competitionId: string
-): Promise<CompetitionSpeciesRow[]> {
+): Promise<CompetitionSpecies[]> {
     if (!client) throw new Error("Supabase not ready");
 
     const { data, error } = await client
         .from("competition_species")
         .select(`
-            id,
             species:species_id (
                 id,
                 name,
-                is_measure
+                fish_type_id,
+                fish_type:fish_type_id (
+                    fish_type_id,
+                    name
+                ),
+                species_category_id,
+                species_category:species_category_id (
+                    name
+                )
             )
         `)
-        .eq("competition_id", competitionId)
-        .order("species_id");
+        .eq("competition_id", competitionId);
 
     if (error) throw error;
 
-    return (data ?? []).map((row: any) => ({
-        id: row.id,
-        species: Array.isArray(row.species)
+    return (data ?? []).map((row: any) => {
+        const s = Array.isArray(row.species)
             ? row.species[0]
-            : row.species,
-    }));
+            : row.species;
+
+        const fishType = Array.isArray(s.fish_type)
+            ? s.fish_type[0]
+            : s.fish_type;
+
+        return {
+            id: s.id,
+            name: s.name,
+
+            fish_type_id: s.fish_type_id,
+            fish_type_name: fishType?.name ?? "Unknown fish type",
+
+            species_category_id: s.species_category_id ?? null,
+            species_category: s.species_category
+                ? Array.isArray(s.species_category)
+                    ? s.species_category[0]
+                    : s.species_category
+                : null,
+        };
+    });
 }
+
+// ============================================================================
+// SAVE COMPETITION SPECIES
+// ============================================================================
 
 /**
  * Replaces all species for a competition.
- * Safe, idempotent, and mirrors existing behaviour in competitions.ts.
  */
 export async function saveCompetitionSpecies(
     organisationId: string,
@@ -207,7 +236,6 @@ export async function saveCompetitionSpecies(
 ) {
     if (!client) throw new Error("Supabase not ready");
 
-    // Clear existing species
     await client
         .from("competition_species")
         .delete()

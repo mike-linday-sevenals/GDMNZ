@@ -35,10 +35,12 @@ export type PrizeModeRow = {
     name: string;
 };
 
-export type CompetitionSpeciesRow = {
+export type CompetitionSpecies = {
     id: string;
-    species: Species;
+    competition_id: string;
+    species_id: number;
 };
+
 
 // ============================================================================
 // SUPABASE INIT
@@ -105,6 +107,21 @@ export async function canDeleteCompetition(
     return (count ?? 0) === 0;
 }
 
+export async function competitionHasResults(
+    competitionId: string
+): Promise<boolean> {
+    if (!client) return false;
+
+    const { data, error } = await client
+        .from("competition_results")
+        .select("id")
+        .eq("competition_id", competitionId)
+        .limit(1);
+
+    if (error) throw error;
+    return !!data?.length;
+}
+
 
 // ============================================================================
 // COMPETITIONS
@@ -154,6 +171,7 @@ export async function addCompetition(
         competition_type_id: string | null;
         comp_mode_id: string | null;
         prize_mode_id: string | null;
+        briefing_required: boolean;
     }
 ) {
     if (!client) throw new Error("Supabase not configured");
@@ -181,6 +199,26 @@ export async function addCompetition(
 
     return competition;
 }
+export async function listCompetitionSpecies(
+    competitionId: string
+): Promise<CompetitionSpecies[]> {
+    if (!client) throw new Error("Supabase not ready");
+
+    const { data, error } = await client
+        .from("competition_species")
+        .select("id, competition_id, species_id")
+        .eq("competition_id", competitionId)
+        .order("species_id");
+
+    if (error) throw error;
+    return data ?? [];
+}
+
+
+
+
+
+
 
 export async function getCompetition(
     organisationId: string,
@@ -196,7 +234,8 @@ export async function getCompetition(
                 name,
                 starts_at,
                 ends_at,
-                competition_type:competition_type_id ( id, name, description ),
+                briefing_required,
+                competition_type:competition_type_id ( id, code, name, description ),
                 comp_mode:comp_mode_id ( id, name ),
                 prize_mode:prize_mode_id ( id, name )
             )
@@ -230,6 +269,8 @@ export async function getCompetition(
         starts_at: c.starts_at,
         ends_at: c.ends_at,
 
+        briefing_required: c.briefing_required ?? false, 
+
         competition_type: competitionType ?? null,
         comp_mode: compMode ?? null,
         prize_mode: prizeMode ?? null,
@@ -256,6 +297,7 @@ export async function updateCompetition(
             competition_type_id: patch.competition_type_id ?? null,
             comp_mode_id: patch.comp_mode_id ?? null,
             prize_mode_id: patch.prize_mode_id ?? null,
+            briefing_required: patch.briefing_required ?? false,
         })
         .eq("id", competitionId);
 
@@ -505,38 +547,7 @@ export async function listSpecies(): Promise<Species[]> {
 }
 
 
-// ============================================================================
-// COMPETITION SPECIES
-// ============================================================================
 
-export async function listCompetitionSpecies(
-    organisationId: string,
-    competitionId: string
-): Promise<CompetitionSpeciesRow[]> {
-    if (!client) throw new Error("Supabase not ready");
-
-    const { data, error } = await client
-        .from("competition_species")
-        .select(`
-            id,
-            species:species_id (
-                id,
-                name,
-                is_measure
-            )
-        `)
-        .eq("competition_id", competitionId)
-        .order("species_id");
-
-    if (error) throw error;
-
-    return (data ?? []).map((row: any) => ({
-        id: row.id,
-        species: Array.isArray(row.species)
-            ? row.species[0]
-            : row.species,
-    }));
-}
 
 export async function saveCompetitionSpecies(
     organisationId: string,

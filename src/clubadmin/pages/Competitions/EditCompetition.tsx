@@ -11,7 +11,10 @@
 import { useEffect, useState, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 
-// Club-admin scoped APIs — competitions
+// ============================================================================
+// Club-admin scoped APIs — competitions (PERSISTENCE / JOIN TABLES)
+// ============================================================================
+
 import {
     getCompetition,
     updateCompetition,
@@ -25,18 +28,24 @@ import {
     getCompetitionBriefing,
     upsertCompetitionBriefing,
     canDeleteCompetition,
-    deleteCompetition
+    deleteCompetition,
+    listCompetitionSpecies,      // ✅ ID-ONLY (species_id)
+    saveCompetitionSpecies,       // ✅ ID-ONLY persistence
+    competitionHasResults
 } from "@/clubadmin/api/competitions";
 
-// Club-admin scoped APIs — species
+// ============================================================================
+// Club-admin scoped APIs — species (DISPLAY / LOOKUPS ONLY)
+// ============================================================================
+
 import {
     listSpecies,
-    listCompetitionSpecies,
-    saveCompetitionSpecies,
     listFishTypesForCompetitionType,
     listSpeciesByFishTypes
 } from "@/clubadmin/api/species";
 
+
+import CompetitionPrizes from "@/clubadmin/pages/CompetitionPrizes/CompetitionPrizes";
 
 
 // Types
@@ -47,6 +56,7 @@ import type {
     CompetitionType,
     CompMode,
     PrizeMode,
+    CompetitionSpeciesRow,
 } from "@/types";
 
 type FishingStartType = "None" | "Required";
@@ -59,7 +69,7 @@ type CompetitionBriefing = {
     notes: string | null;
 };
 
-type EditSection = "details" | "briefing" | "days" | "species";
+type EditSection = "details" | "briefing" | "days" | "species" | "prizes";
 type Division = {
     id: string;
     code: string;
@@ -108,6 +118,7 @@ export default function EditCompetition() {
     const [speciesDirty, setSpeciesDirty] = useState(false);
     const [savedSpeciesIds, setSavedSpeciesIds] = useState<number[]>([]);
 
+    const [hasResults, setHasResults] = useState(false);
 
 
     const [briefing, setBriefing] = useState<CompetitionBriefing>({
@@ -166,103 +177,164 @@ export default function EditCompetition() {
     // LOAD
     // =========================================================================
 
-
     useEffect(() => {
         if (!organisationId || !id) return;
+
+        let cancelled = false;
 
         (async () => {
             setLoading(true);
             try {
+                // -------------------------------------------------------------
+                // 1️⃣ Load core competition
+                // -------------------------------------------------------------
                 const comp = await getCompetition(organisationId, id);
+                if (cancelled) return;
                 setCompetition(comp);
 
-                // ✅ CHECK IF COMPETITION CAN BE DELETED
-                const deletable = await canDeleteCompetition(id);
-                setCanDelete(deletable);
+                // -------------------------------------------------------------
+                // 1️⃣b️⃣ Has results?
+                // -------------------------------------------------------------
+                const has = await competitionHasResults(id);
+                if (!cancelled) {
+                    setHasResults(has);
+                }
 
+                // -------------------------------------------------------------
+                // 2️⃣ Can delete?
+                // -------------------------------------------------------------
+                const deletable = await canDeleteCompetition(id);
+                if (!cancelled) {
+                    setCanDelete(deletable);
+                }
+
+                // -------------------------------------------------------------
+                // 3️⃣ Load lookups in parallel
+                // -------------------------------------------------------------
                 const [types, modes, prizes] = await Promise.all([
                     listCompetitionTypes(),
                     listCompModes(),
                     listPrizeModes(),
                 ]);
 
-                setCompetitionTypes(types);
-                setCompModes(modes);
-                setPrizeModes(prizes);
-
-                const divisions = await listCompetitionDivisions(id);
-                setCompetitionDivisions(divisions);
-
-                const savedIds = divisions.map(d => d.id);
-                setSelectedDivisionIds(savedIds);
-                setSavedDivisionIds(savedIds);
-                setDivisionsDirty(false);
-
-                const b = await getCompetitionBriefing(organisationId, id);
-                if (b) {
-                    setBriefing({
-                        briefing_date: b.briefing_date ?? null,
-                        briefing_time: b.briefing_time ?? null,
-                        location: b.location ?? null,
-                        notes: b.notes ?? null,
-                    });
+                if (!cancelled) {
+                    setCompetitionTypes(types);
+                    setCompModes(modes);
+                    setPrizeModes(prizes);
                 }
 
+                // -------------------------------------------------------------
+                // 4️⃣ Divisions
+                // -------------------------------------------------------------
+                const divisions = await listCompetitionDivisions(id);
+                if (!cancelled) {
+                    setCompetitionDivisions(divisions);
+
+                    const savedIds = divisions.map(d => d.id);
+                    setSelectedDivisionIds(savedIds);
+                    setSavedDivisionIds(savedIds);
+                    setDivisionsDirty(false);
+                }
+
+                // -------------------------------------------------------------
+                // 5️⃣ Briefing (ONLY if required)
+                // -------------------------------------------------------------
+                if (comp.briefing_required) {
+                    const b = await getCompetitionBriefing(organisationId, id);
+                    if (!cancelled && b) {
+                        setBriefing({
+                            briefing_date: b.briefing_date ?? null,
+                            briefing_time: b.briefing_time ?? null,
+                            location: b.location ?? null,
+                            notes: b.notes ?? null,
+                        });
+                    }
+                }
+
+                // -------------------------------------------------------------
+                // 6️⃣ All divisions (system-wide)
+                // -------------------------------------------------------------
                 const all = await listDivisions();
-                setAllDivisions(all);
+                if (!cancelled) {
+                    setAllDivisions(all);
+                }
 
+                // -------------------------------------------------------------
+                // 7️⃣ Competition days
+                // -------------------------------------------------------------
                 const compDays = await listCompetitionDays(organisationId, id);
-                setDays(compDays);
+                if (!cancelled) {
+                    setDays(compDays);
+                }
 
-                // -----------------------------------------------------------------
-                // SPECIES: discipline + species loading
-                // -----------------------------------------------------------------
-
-                let loadedSpecies: Species[] = [];
-
+                // -------------------------------------------------------------
+                // 8️⃣ SPECIES: discipline + species loading
+                // -------------------------------------------------------------
                 if (comp.competition_type_id) {
-                    // 1️⃣ Resolve allowed fish types from competition type
-                    const fishTypes = await listFishTypesForCompetitionType(
-                        comp.competition_type_id
-                    );
+                    // Resolve allowed fish types
+                    const fishTypes =
+                        await listFishTypesForCompetitionType(
+                            comp.competition_type_id
+                        );
 
                     const fishTypeIds = fishTypes.map(ft => ft.fish_type_id);
-                    setAllowedFishTypeIds(fishTypeIds);
 
-                    // Default active discipline
-                    setActiveFishTypeId(fishTypeIds[0] ?? null);
+                    if (!cancelled) {
+                        setAllowedFishTypeIds(fishTypeIds);
+                        setActiveFishTypeId(fishTypeIds[0] ?? null);
+                    }
 
-                    // 2️⃣ Load species scoped to allowed fish types
-                    loadedSpecies = await listSpeciesByFishTypes(fishTypeIds);
-                    setAllSpecies(loadedSpecies);
+                    // Load species scoped to fish types
+                    const loadedSpecies =
+                        await listSpeciesByFishTypes(fishTypeIds);
+
+                    if (!cancelled) {
+                        setAllSpecies(loadedSpecies);
+                    }
                 } else {
-                    // Safety fallback
-                    setAllowedFishTypeIds([]);
-                    setActiveFishTypeId(null);
-                    setAllSpecies([]);
+                    if (!cancelled) {
+                        setAllowedFishTypeIds([]);
+                        setActiveFishTypeId(null);
+                        setAllSpecies([]);
+                    }
                 }
 
-                // 3️⃣ Load persisted competition species
-                const compSpecies = await listCompetitionSpecies(
-                    organisationId,
-                    id
-                );
+                // -------------------------------------------------------------
+                // 9️⃣ Persisted competition species
+                // -------------------------------------------------------------
+                const compSpecies = await listCompetitionSpecies(id);
 
-                const speciesIds = compSpecies.map(s => s.species.id);
-                setSelectedSpeciesIds(speciesIds);
-                setSavedSpeciesIds(speciesIds);
-                setSpeciesDirty(false);
+                // compSpecies is CompetitionSpecies[]
+                const speciesIds = compSpecies.map(s => s.species_id);
 
+                if (!cancelled) {
+                    setSelectedSpeciesIds(speciesIds);
+                    setSavedSpeciesIds(speciesIds);
+                    setSpeciesDirty(false);
+                }
+
+
+
+                if (!cancelled) {
+                    setSelectedSpeciesIds(speciesIds);
+                    setSavedSpeciesIds(speciesIds);
+                    setSpeciesDirty(false);
+                }
 
             } catch (err) {
                 console.error(err);
                 alert("Unable to load competition");
             } finally {
-                setLoading(false);
+                if (!cancelled) {
+                    setLoading(false);
+                }
             }
         })();
-    }, [organisationId, id]);
 
+        return () => {
+            cancelled = true;
+        };
+    }, [organisationId, id]);
 
 
     // =========================================================================
@@ -360,7 +432,6 @@ export default function EditCompetition() {
     }, [visibleSpecies]);
 
 
-
     // =========================================================================
     // SAVE
     // =========================================================================
@@ -369,25 +440,44 @@ export default function EditCompetition() {
 
         setSaving(true);
         try {
+            // --------------------------------------------------
+            // 1️⃣ SAFE DETAILS — ALWAYS ALLOWED
+            // --------------------------------------------------
             await updateCompetition(organisationId, id, {
                 name: competition.name,
                 starts_at: competition.starts_at,
                 ends_at: competition.ends_at,
                 competition_type_id: competition.competition_type_id ?? null,
-                comp_mode_id: competition.comp_mode_id ?? null,
-                prize_mode_id: competition.prize_mode_id ?? null,
+                briefing_required: competition.briefing_required,
+
+                // REQUIRED by DB (must never be null)
+                comp_mode_id: competition.comp_mode_id,
+                prize_mode_id: competition.prize_mode_id,
             });
 
-            // reset baseline
-            await saveCompetitionDivisions(id, selectedDivisionIds);
-            setSavedDivisionIds(selectedDivisionIds);
- 
-            // 🔄 Sync persisted divisions back into state
-            const updatedDivisions = await listCompetitionDivisions(id);
-            setCompetitionDivisions(updatedDivisions);
 
-            await upsertCompetitionBriefing(organisationId, id, briefing);
+            // --------------------------------------------------
+            // 2️⃣ STRUCTURE — ONLY IF NO RESULTS
+            // --------------------------------------------------
+            if (!hasResults) {
+                await saveCompetitionDivisions(id, selectedDivisionIds);
+                setSavedDivisionIds(selectedDivisionIds);
 
+                const updatedDivisions = await listCompetitionDivisions(id);
+                setCompetitionDivisions(updatedDivisions);
+            }
+
+
+            // --------------------------------------------------
+            // 3️⃣ BRIEFING (ONLY IF REQUIRED)
+            // --------------------------------------------------
+            if (competition.briefing_required) {
+                await upsertCompetitionBriefing(organisationId, id, briefing);
+            }
+
+            // --------------------------------------------------
+            // 4️⃣ FISHING DAYS
+            // --------------------------------------------------
             for (const d of days) {
                 await updateCompetitionDay(d.id, {
                     day_date: d.day_date,
@@ -404,6 +494,9 @@ export default function EditCompetition() {
                 });
             }
 
+            // --------------------------------------------------
+            // 5️⃣ SPECIES
+            // --------------------------------------------------
             await saveCompetitionSpecies(
                 organisationId,
                 id,
@@ -411,12 +504,11 @@ export default function EditCompetition() {
             );
 
             // --------------------------------------------------
-            // ✅ CLEAR DIRTY STATE (authoritative reset)
+            // 6️⃣ CLEAR DIRTY STATE (AUTHORITATIVE RESET)
             // --------------------------------------------------
             setSavedSpeciesIds(selectedSpeciesIds);
             setSpeciesDirty(false);
             setDivisionsDirty(false);
-
 
             setFeedbackMessage("Competition updated successfully.");
         } catch (err) {
@@ -427,19 +519,6 @@ export default function EditCompetition() {
         }
     }
 
-    async function addDay() {
-        if (!id) return;
-
-        const d = await addCompetitionDay(id);
-        setDays((prev) => [...prev, d]);
-    }
-
-    async function removeDay(dayId: string) {
-        if (!confirm("Remove this fishing day?")) return;
-
-        await deleteCompetitionDay(dayId);
-        setDays((prev) => prev.filter((d) => d.id !== dayId));
-    }
     // =========================================================================
     // Delete 
     // =========================================================================
@@ -462,6 +541,23 @@ export default function EditCompetition() {
             console.error(err);
             alert("Unable to delete competition");
         }
+    }
+
+    // =========================================================================
+    // DAY HELPERS
+    // =========================================================================
+    async function addDay() {
+        if (!id) return;
+
+        const d = await addCompetitionDay(id);
+        setDays((prev) => [...prev, d]);
+    }
+
+    async function removeDay(dayId: string) {
+        if (!confirm("Remove this fishing day?")) return;
+
+        await deleteCompetitionDay(dayId);
+        setDays((prev) => prev.filter((d) => d.id !== dayId));
     }
 
 
@@ -532,6 +628,15 @@ export default function EditCompetition() {
                         >
                             Species
                         </button>
+
+                        <button
+                            className={`btn ${activeSection === "prizes" ? "primary" : ""}`}
+                            onClick={() => setActiveSection("prizes")}
+                            type="button"
+                        >
+                            Prizes
+                        </button>
+
                     </div>
                 </div>
 
@@ -747,6 +852,30 @@ export default function EditCompetition() {
                                 </select>
                             </div>
 
+                            {/* ✅ Briefing Required */}
+                            <div className="field span-6">
+                                <label>Briefing required</label>
+
+                                <div className="segmented">
+                                    <button
+                                        type="button"
+                                        className={`segmented-btn ${competition.briefing_required ? "active" : ""}`}
+                                        onClick={() => onFieldChange("briefing_required", true)}
+                                    >
+                                        Yes
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        className={`segmented-btn ${!competition.briefing_required ? "active" : ""}`}
+                                        onClick={() => onFieldChange("briefing_required", false)}
+                                    >
+                                        No
+                                    </button>
+                                </div>
+                            </div>
+
+
                             {/* ✅ DIVISIONS — RIGHT HAND SIDE */}
                             <div className="field span-6">
                                 <label>Divisions</label>
@@ -792,63 +921,92 @@ export default function EditCompetition() {
                     <section className="card">
                         <h3>Competition Briefing</h3>
 
-                        <div className="form-grid">
-                            <div className="field span-4">
-                                <label>Date</label>
-                                <input
-                                    type="date"
-                                    value={briefing.briefing_date ?? ""}
-                                    onChange={(e) =>
-                                        setBriefing((b) => ({
-                                            ...b,
-                                            briefing_date: e.target.value || null,
-                                        }))
-                                    }
-                                />
-                            </div>
+                        {!competition.briefing_required ? (
+                            /* ---------------------------------
+                               NOT REQUIRED — READ-ONLY STATE
+                            ---------------------------------- */
+                            <div className="empty-state muted">
+                                <p>
+                                    A competition briefing is <strong>not required</strong> for
+                                    this competition.
+                                </p>
 
-                            <div className="field span-4">
-                                <label>Time</label>
-                                <input
-                                    type="time"
-                                    value={briefing.briefing_time ?? ""}
-                                    onChange={(e) =>
-                                        setBriefing((b) => ({
-                                            ...b,
-                                            briefing_time: e.target.value || null,
-                                        }))
-                                    }
-                                />
+                                <p>
+                                    If you decide to hold a briefing, enable
+                                    <strong> “Briefing required”</strong> in the
+                                    <strong> Competition Details</strong> tab.
+                                </p>
                             </div>
+                        ) : (
+                            /* ---------------------------------
+                               REQUIRED — EDITABLE FORM
+                            ---------------------------------- */
+                            <>
+                                <div className="info-inline">
+                                    Briefing is required for this competition.
+                                    Please enter the briefing details below.
+                                </div>
 
-                            <div className="field span-12">
-                                <label>Location</label>
-                                <input
-                                    value={briefing.location ?? ""}
-                                    onChange={(e) =>
-                                        setBriefing((b) => ({
-                                            ...b,
-                                            location: e.target.value || null,
-                                        }))
-                                    }
-                                />
-                            </div>
+                                <div className="form-grid">
+                                    <div className="field span-4">
+                                        <label>Date</label>
+                                        <input
+                                            type="date"
+                                            value={briefing.briefing_date ?? ""}
+                                            onChange={(e) =>
+                                                setBriefing((b) => ({
+                                                    ...b,
+                                                    briefing_date: e.target.value || null,
+                                                }))
+                                            }
+                                        />
+                                    </div>
 
-                            <div className="field span-12">
-                                <label>Notes</label>
-                                <textarea
-                                    value={briefing.notes ?? ""}
-                                    onChange={(e) =>
-                                        setBriefing((b) => ({
-                                            ...b,
-                                            notes: e.target.value || null,
-                                        }))
-                                    }
-                                />
-                            </div>
-                        </div>
+                                    <div className="field span-4">
+                                        <label>Time</label>
+                                        <input
+                                            type="time"
+                                            value={briefing.briefing_time ?? ""}
+                                            onChange={(e) =>
+                                                setBriefing((b) => ({
+                                                    ...b,
+                                                    briefing_time: e.target.value || null,
+                                                }))
+                                            }
+                                        />
+                                    </div>
+
+                                    <div className="field span-12">
+                                        <label>Location</label>
+                                        <input
+                                            value={briefing.location ?? ""}
+                                            onChange={(e) =>
+                                                setBriefing((b) => ({
+                                                    ...b,
+                                                    location: e.target.value || null,
+                                                }))
+                                            }
+                                        />
+                                    </div>
+
+                                    <div className="field span-12">
+                                        <label>Notes</label>
+                                        <textarea
+                                            value={briefing.notes ?? ""}
+                                            onChange={(e) =>
+                                                setBriefing((b) => ({
+                                                    ...b,
+                                                    notes: e.target.value || null,
+                                                }))
+                                            }
+                                        />
+                                    </div>
+                                </div>
+                            </>
+                        )}
                     </section>
                 )}
+
 
                 {/* FISHING DAYS */}
                 {/* ================= FISHING DAYS ================= */}
@@ -1108,8 +1266,20 @@ export default function EditCompetition() {
                                 </section>
                             ))}
                         </div>
+
                     </section>
                 )}
+                {/* ================= PRIZES ================= */}
+                {activeSection === "prizes" && (
+                    <CompetitionPrizes
+                        embedded
+                        competition={competition}
+                        days={days}
+                        divisions={competitionDivisions}
+                      //  hasResults={hasResults}
+                    />
+                )}
+
 
 
                 {/* ================= FOOTER DIVIDER ================= */}
