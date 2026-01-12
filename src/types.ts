@@ -18,7 +18,6 @@ export interface Settings {
     activeSpeciesIds?: number[];
 }
 
-
 export interface Species {
     id: number;
     name: string;
@@ -32,8 +31,6 @@ export interface Species {
         name: string;
     };
 }
-
-
 
 export type Competitor = {
     id: string;
@@ -85,7 +82,6 @@ export type PrizeMode = {
     name: string;
 };
 
-
 // ================================================================
 // COMPETITION
 // ================================================================
@@ -99,6 +95,11 @@ export interface Competition {
     name: string;
     starts_at: string | null;
     ends_at: string | null;
+
+    // -----------------------------
+    // Structure flags
+    // -----------------------------
+    briefing_required: boolean;
 
     // -----------------------------
     // Foreign key columns
