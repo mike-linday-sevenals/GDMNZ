@@ -334,15 +334,17 @@ export async function getCompetition(
     const { data, error } = await client
         .from("competition_organisation")
         .select(`
-            competition:competition_id (
-                id,
-                name,
-                starts_at,
-                ends_at,
-                comp_mode: comp_mode_id ( id, name ),
-                prize_mode: prize_mode_id ( id, name )
-            )
-        `)
+      competition:competition_id (
+          id,
+          name,
+          starts_at,
+          ends_at,
+          briefing_required,
+          comp_mode: comp_mode_id ( id, name ),
+          prize_mode: prize_mode_id ( id, name )
+      )
+  `)
+
         .eq("organisation_id", organisationId)
         .eq("competition_id", competitionId)
         .maybeSingle();
@@ -369,11 +371,16 @@ export async function getCompetition(
         name: comp.name,
         starts_at: comp.starts_at,
         ends_at: comp.ends_at,
+
+        // ✅ REQUIRED by Competition type
+        briefing_required: !!comp.briefing_required,
+
         comp_mode: compMode ?? null,
         prize_mode: prizeMode ?? null,
         comp_mode_id: compMode?.id ?? null,
         prize_mode_id: prizeMode?.id ?? null,
     };
+
 }
 
 // ============================================================================
