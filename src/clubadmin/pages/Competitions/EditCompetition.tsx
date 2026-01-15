@@ -44,8 +44,10 @@ import {
     listSpeciesByFishTypes
 } from "@/clubadmin/api/species";
 
-
 import CompetitionPrizes from "@/clubadmin/pages/CompetitionPrizes/CompetitionPrizes";
+
+import CompetitionFeesCard from
+    "@/clubadmin/pages/Competitions/components/CompetitionFeesCard";
 
 
 // Types
@@ -69,7 +71,7 @@ type CompetitionBriefing = {
     notes: string | null;
 };
 
-type EditSection = "details" | "briefing" | "days" | "species" | "prizes";
+type EditSection = "details" | "fees" | "briefing" | "days" | "species" | "prizes";
 type Division = {
     id: string;
     code: string;
@@ -85,6 +87,8 @@ import {
 } from "@/clubadmin/api/divisions";
 
 import FeedbackModal from "@/components/FeedbackModal";
+
+
 
 
 export default function EditCompetition() {
@@ -128,8 +132,10 @@ export default function EditCompetition() {
         notes: null,
     });
 
+
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+
 
     // Modal state
     const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
@@ -609,6 +615,16 @@ export default function EditCompetition() {
                         </button>
 
                         <button
+                            className={`btn ${activeSection === "fees" ? "primary" : ""}`}
+                            onClick={() => setActiveSection("fees")}
+                            type="button"
+                        >
+                            Fees
+                        </button>
+
+
+
+                        <button
                             className={`btn ${activeSection === "briefing" ? "primary" : ""}`}
                             onClick={() => setActiveSection("briefing")}
                         >
@@ -747,13 +763,6 @@ export default function EditCompetition() {
                     </div>
                 )}
 
-
-
-                {/* rest of Edit Competition content */}
-
-
-
-                {/* COMPETITION DETAILS */}
                 {/* ================= COMPETITION DETAILS ================= */}
                 {activeSection === "details" && (
                     <section className="card">
@@ -912,6 +921,14 @@ export default function EditCompetition() {
                             </div>
                         </div>
                     </section>
+                )}
+
+                {/* ================= FEES ================= */}
+                {activeSection === "fees" && organisationId && id && (
+                    <CompetitionFeesCard
+                        organisationId={organisationId}
+                        competitionId={id}
+                    />
                 )}
 
 
@@ -1297,20 +1314,25 @@ export default function EditCompetition() {
                                 Delete Competition
                             </button>
                         ) : (
-                            <div className="delete-disabled">
-                                <button
-                                    type="button"
-                                    className="btn danger"
-                                    disabled
-                                    title="This competition has registrations and cannot be deleted"
-                                >
-                                    Delete Competition
-                                </button>
+                                <div className="delete-disabled">
+                                    <button
+                                        type="button"
+                                        className="btn danger"
+                                        disabled
+                                        aria-describedby="delete-disabled-reason"
+                                    >
+                                        Delete Competition
+                                    </button>
 
-                                <p className="muted" style={{ marginTop: 4 }}>
-                                    This competition can’t be deleted because competitors are registered.
-                                </p>
-                            </div>
+                                    <p
+                                        id="delete-disabled-reason"
+                                        className="muted"
+                                        style={{ marginTop: 4 }}
+                                    >
+                                        This competition can’t be deleted because competitors are registered.
+                                    </p>
+                                </div>
+
                         )}
                     </div>
 

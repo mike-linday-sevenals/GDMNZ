@@ -1163,3 +1163,214 @@ select {
         color: #fff;
         border-color: var(--accent);
     }
+
+
+/* =========================
+   Paid toggle (registration)
+   ========================= */
+
+.paid-toggle {
+    height: 38px; /* matches inputs */
+    min-width: 72px;
+    padding: 0 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: #fff;
+    color: var(--text-muted);
+    font-size: 13px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+    /* Hover */
+    .paid-toggle:hover {
+        border-color: var(--accent);
+        background: #f8fbff;
+    }
+
+    /* Paid state */
+    .paid-toggle.is-paid {
+        background: #e6f7ef;
+        border-color: var(--ok);
+        color: #0f7a4a;
+    }
+
+
+
+
+/* =========================
+   Registration table polish
+   ========================= */
+
+table {
+    table-layout: fixed;
+}
+
+    table th,
+    table td {
+        vertical-align: middle;
+    }
+
+.cell-center {
+    text-align: center;
+}
+.paid-pill {
+    cursor: pointer;
+}
+
+    .paid-pill:hover {
+        border-color: var(--accent);
+        background: #f8fbff;
+    }
+
+    .paid-pill.is-paid {
+        background: rgba(5, 150, 105, 0.18);
+        border-color: var(--ok);
+        color: var(--ok);
+    }
+table th:nth-child(2),
+table td:nth-child(2) {
+    width: 240px; /* Name */
+}
+
+table th:nth-child(5),
+table td:nth-child(5) {
+    width: 140px; /* Member No */
+}
+
+table th:nth-child(8),
+table td:nth-child(8) {
+    width: 90px; /* Paid */
+}
+/* =========================
+   Table alignment helpers
+========================= */
+
+.th-center {
+    text-align: center;
+}
+
+.cell-center {
+    text-align: center;
+    vertical-align: middle;
+}
+
+/* =========================
+   Pills
+========================= */
+
+.pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 64px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+/* Colours */
+.pill--green {
+    background: #e6f7ef;
+    color: #0f7a4a;
+    border: 1px solid #b7ebcd;
+}
+
+.pill--muted {
+    background: #f2f4f7;
+    color: #667085;
+    border: 1px solid #d0d5dd;
+}
+
+/* Clickable (Paid) */
+.pill--clickable {
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+    .pill--clickable:hover {
+        filter: brightness(0.97);
+    }
+table td {
+    padding-top: 8px;
+    padding-bottom: 8px;
+}
+ /* Header alignment */
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* Compact date */
+.fee-date-row {
+    margin-bottom: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.date-input--compact {
+    width: 180px;
+}
+
+/* Horizontal blocks */
+.fees-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(220px, 1fr));
+    gap: 16px;
+}
+
+.fee-block {
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    padding: 14px;
+    background: #fff;
+}
+
+    .fee-block h4 {
+        margin: 0 0 12px;
+        font-size: 0.95rem;
+        font-weight: 600;
+    }
+
+/* Compact currency input */
+.fee-input {
+    margin-bottom: 10px;
+}
+
+.currency-input {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.currency-prefix {
+    font-weight: 600;
+    color: #666;
+}
+
+.currency-input input {
+    width: 90px;
+}
+
+/* Footer */
+.card-actions {
+    margin-top: 16px;
+    display: flex;
+    justify-content: flex-end;
+}
+button:disabled {
+    cursor: not-allowed;
+}
+button[aria-busy="true"] {
+    cursor: wait;
+    opacity: 0.7;
+}
