@@ -39,11 +39,12 @@ export type Competitor = {
     full_name: string;
     category: "adult" | "junior";
     paid_on: string | null;
-    boat: string;
 
-    membership_no: string;
-    boat_type: "Launch" | "Trailer" | "Charter";
+    boat: string | null;
+    membership_no: string | null;
+    boat_type: "Launch" | "Trailer" | "Charter" | null;
 };
+
 
 export interface FishJoined {
     id: string | number;
