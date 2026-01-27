@@ -1,4 +1,8 @@
-﻿import { Routes, Route, Navigate } from "react-router-dom";
+﻿// ============================================================================
+// src/App.tsx
+// ============================================================================
+
+import { Routes, Route, Navigate } from "react-router-dom";
 
 /* =====================================================================
    🌍 PUBLIC PAGES
@@ -10,10 +14,8 @@ import PublicResultsPage from "./clubadmin/pages/PublicResultsPage";
    🛠️ CLUB OPERATIONS (ORG-SCOPED)
    ===================================================================== */
 import ClubRegister from "./clubadmin/pages/Register";
-import ClubSubmit from "./clubadmin/pages/Submit";
+import SubmissionPage from "./clubadmin/pages/Submission/SubmissionPage";
 import ClubResults from "./clubadmin/pages/Results";
-import ClubPrizes from "./clubadmin/pages/Prizes";
-import ClubPrizeGiving from "./clubadmin/pages/PrizeGiving";
 import ClubData from "./clubadmin/pages/Data";
 import AdminSponsors from "./clubadmin/pages/AdminSponsors";
 
@@ -24,10 +26,12 @@ import Admin from "./clubadmin/pages/Admin";
 import CompetitionsList from "./clubadmin/pages/Competitions/CompetitionsList";
 import AddCompetition from "./clubadmin/pages/Competitions/AddCompetition";
 import EditCompetition from "./clubadmin/pages/Competitions/EditCompetition";
+import PrizeEngineValidationPage from "./clubadmin/pages/Competitions/PrizeEngine/PrizeEngineValidationPage";
 
-
-
-
+/* =====================================================================
+   🎰 RANDOM LISTS
+   ===================================================================== */
+import DrawRandomListPage from "./clubadmin/pages/RandomLists/DrawRandomListPage";
 
 /* =====================================================================
    🧱 LAYOUTS
@@ -40,7 +44,6 @@ import PlatformAdminLayout from "./layouts/PlatformAdminLayout";
    🔐 PLATFORM ADMIN
    ===================================================================== */
 import { AdminProvider } from "@/admin/AdminContext";
-import AdminGate from "@/admin/AdminGate";
 import AdminDashboard from "@/admin/pages/Dashboard";
 
 import AdminSettings from "@/admin/pages/Settings";
@@ -50,8 +53,9 @@ import FishingSettings from "@/admin/pages/Settings/Fishing";
 import FishingLanding from "@/admin/pages/Settings/Fishing/Landing";
 import FishingSpecies from "@/admin/pages/Settings/Fishing/Species";
 
-
-
+// ============================================================================
+// APP ROUTER
+// ============================================================================
 
 export default function App() {
     return (
@@ -62,11 +66,7 @@ export default function App() {
                =============================================================== */}
             <Route element={<SiteLayout />}>
                 <Route path="/" element={<LandingPage />} />
-
-                {/* Public results selector */}
                 <Route path="/results" element={<PublicResultsPage />} />
-
-                {/* Shareable public results (deep link) */}
                 <Route path="/results/:slug" element={<PublicResultsPage />} />
             </Route>
 
@@ -82,17 +82,15 @@ export default function App() {
 
                 {/* Core operations */}
                 <Route path="register" element={<ClubRegister />} />
-                <Route path="submit" element={<ClubSubmit />} />
+                <Route path="submit" element={<SubmissionPage />} />
                 <Route path="results" element={<ClubResults />} />
-                <Route path="prizes" element={<ClubPrizes />} />
-                <Route path="prizegiving" element={<ClubPrizeGiving />} />
                 <Route path="data" element={<ClubData />} />
 
-                {/* Sponsors (ORG-level) */}
+                {/* Sponsors */}
                 <Route path="sponsors" element={<AdminSponsors />} />
 
                 {/* ===========================================================
-                   🧭 ADMIN AREA (competition + system admin)
+                   🧭 ADMIN AREA
                    =========================================================== */}
                 <Route path="admin" element={<Admin />}>
                     <Route
@@ -102,14 +100,35 @@ export default function App() {
 
                     <Route path="competitions" element={<CompetitionsList />}>
                         <Route path="add" element={<AddCompetition />} />
-                        <Route path=":id" element={<EditCompetition />} />
+
+                        <Route path=":id">
+                            <Route
+                                index
+                                element={<Navigate to="edit" replace />}
+                            />
+
+                            <Route path="edit" element={<EditCompetition />}>
+                                <Route
+                                    path="prize-giving"
+                                    element={<PrizeEngineValidationPage embedded />}
+                                />
+                            </Route>
+                        </Route>
                     </Route>
+
+                    {/* =======================================================
+                       🎰 RANDOM LIST DRAW
+                       ======================================================= */}
+                    <Route
+                        path="random-lists/:randomListId/draw"
+                        element={<DrawRandomListPage />}
+                    />
                 </Route>
             </Route>
 
             {/* ===============================================================
-   🔐 PLATFORM ADMIN
-   =============================================================== */}
+               🔐 PLATFORM ADMIN
+               =============================================================== */}
             <Route
                 path="/admin"
                 element={
@@ -118,28 +137,22 @@ export default function App() {
                     </AdminProvider>
                 }
             >
-                {/* Dashboard */}
                 <Route index element={<AdminDashboard />} />
 
-                {/* Settings */}
                 <Route path="settings" element={<AdminSettings />}>
-                    {/* Settings landing */}
                     <Route index element={<SettingsLanding />} />
 
                     <Route path="sports">
                         <Route path="fishing" element={<FishingSettings />}>
-                            {/* Fishing landing */}
                             <Route index element={<FishingLanding />} />
-
-                            {/* Fishing sub-pages */}
-                            <Route path="species" element={<FishingSpecies />} />
+                            <Route
+                                path="species"
+                                element={<FishingSpecies />}
+                            />
                         </Route>
                     </Route>
                 </Route>
             </Route>
-
-
-
 
             {/* ===============================================================
                🚑 FALLBACK

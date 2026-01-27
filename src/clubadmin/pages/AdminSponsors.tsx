@@ -15,9 +15,20 @@ import { listCompetitions } from '@/services/api'
    TYPES
    ===================================================================== */
 
-type Competition = { id: string; name: string }
-type Sponsor = { id: string; name: string }
-type Level = { id: string; label: string }
+type Competition = {
+    id: string
+    name: string
+}
+
+type Sponsor = {
+    id: string
+    name: string
+}
+
+type Level = {
+    id: string
+    label: string
+}
 
 type CompetitionSponsor = {
     id: string
@@ -56,11 +67,24 @@ export default function AdminSponsors() {
         if (!organisationId) return
 
             ; (async () => {
-                setCompetitions(await listCompetitions(organisationId))
+                const comps = await listCompetitions(organisationId)
+
+                setCompetitions(
+                    (comps ?? [])
+                        .filter(
+                            (c): c is NonNullable<typeof c> => c !== null
+                        )
+                        .map(c => ({
+                            id: c.id,
+                            name: c.name,
+                        }))
+                )
+
                 setLevels(await fetchDefaultGroupLevels())
                 setAllSponsors(await listSponsors())
             })()
     }, [organisationId])
+
 
     /* -------------------------------------------------------------
        LOAD SPONSORS WHEN COMPETITION CHANGES
@@ -83,7 +107,7 @@ export default function AdminSponsors() {
 
     function hasUnsavedChanges() {
         if (activePanel === 'add-existing') {
-            return sponsorId || levelId
+            return Boolean(sponsorId || levelId)
         }
         if (activePanel === 'create-new') {
             return newName.trim().length > 0

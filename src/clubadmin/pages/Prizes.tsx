@@ -1,10 +1,8 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link } from "react-router-dom";
 
 import {
-    listCompetitions,
     listCompetitionSpecies,
-    getCompetition
 } from "@/services/api";
 
 import {
@@ -18,11 +16,6 @@ import { listSponsors } from "@/services/sponsors";
 /* ------------------------------------------------------------------ */
 /* Types */
 /* ------------------------------------------------------------------ */
-type Competition = {
-    id: string;
-    name: string;
-};
-
 type Species = {
     id: number;
     name: string;
@@ -37,19 +30,26 @@ type PrizeMode = "combined" | "split";
 type PrizeCategory = "combined" | "junior" | "adult";
 
 /* ------------------------------------------------------------------ */
-/* Page */
+/* Props */
 /* ------------------------------------------------------------------ */
-export default function Prizes() {
-    const { organisationId } = useParams<{ organisationId: string }>();
+type Props = {
+    organisationId: string;
+    competitionId: string;
+    prizeMode: PrizeMode;
+};
 
-    const [competitions, setCompetitions] = useState<Competition[]>([]);
-    const [competitionId, setCompetitionId] = useState<string>("");
-
+/* ------------------------------------------------------------------ */
+/* Component */
+/* ------------------------------------------------------------------ */
+export default function Prizes({
+    organisationId,
+    competitionId,
+    prizeMode,
+}: Props) {
     const [species, setSpecies] = useState<Species[]>([]);
     const [prizes, setPrizes] = useState<PrizeRow[]>([]);
     const [sponsors, setSponsors] = useState<Sponsor[]>([]);
 
-    const [prizeMode, setPrizeMode] = useState<PrizeMode>("combined");
     const [activeCategory, setActiveCategory] =
         useState<"junior" | "adult">("adult");
 
@@ -57,30 +57,7 @@ export default function Prizes() {
     const [savingId, setSavingId] = useState<string | null>(null);
 
     /* -------------------------------------------------- */
-    /* Load competitions + sponsors (ORG SCOPED) */
-    /* -------------------------------------------------- */
-    useEffect(() => {
-        if (!organisationId) return;
-
-        (async () => {
-            const [comps, sps] = await Promise.all([
-                listCompetitions(organisationId),
-                listSponsors(),
-            ]);
-
-            setCompetitions(comps);
-            setSponsors(sps);
-
-            if (comps.length) {
-                setCompetitionId(comps[0].id);
-            } else {
-                setLoading(false);
-            }
-        })();
-    }, [organisationId]);
-
-    /* -------------------------------------------------- */
-    /* Load prize mode + species + prizes */
+    /* Load species + prizes + sponsors */
     /* -------------------------------------------------- */
     useEffect(() => {
         if (!organisationId || !competitionId) return;
@@ -88,18 +65,16 @@ export default function Prizes() {
         (async () => {
             setLoading(true);
 
-            const [comp, spRows, prizeRows] = await Promise.all([
-                getCompetition(organisationId, competitionId),
+            const [spRows, prizeRows, sps] = await Promise.all([
                 listCompetitionSpecies(organisationId, competitionId),
                 listPrizesForCompetition(organisationId, competitionId),
+                listSponsors(),
             ]);
-
-            setPrizeMode(
-                comp.prize_mode?.name === "split" ? "split" : "combined"
-            );
 
             setSpecies(spRows.map((r: any) => r.species));
             setPrizes(prizeRows);
+            setSponsors(sps);
+
             setLoading(false);
         })();
     }, [organisationId, competitionId]);
@@ -109,6 +84,8 @@ export default function Prizes() {
     /* -------------------------------------------------- */
     const currentCategory: PrizeCategory =
         prizeMode === "combined" ? "combined" : activeCategory;
+
+    const hasAnyPrizes = prizes.length > 0;
 
     /* -------------------------------------------------- */
     /* Save prize */
@@ -133,12 +110,14 @@ export default function Prizes() {
         });
 
         setPrizes(
-            await listPrizesForCompetition(organisationId!, competitionId));
+            await listPrizesForCompetition(organisationId, competitionId)
+        );
+
         setSavingId(null);
     }
 
     /* -------------------------------------------------- */
-    /* Remove prize (hard delete or soft handled in API) */
+    /* Remove prize */
     /* -------------------------------------------------- */
     async function removePrize(p: PrizeRow) {
         if (!confirm("Remove this prize?")) return;
@@ -147,12 +126,12 @@ export default function Prizes() {
 
         await upsertPrize({
             ...p,
-            for_category: p.for_category,
-            is_deleted: true, // assumes soft delete support
+            is_deleted: true,
         } as any);
 
         setPrizes(
-            await listPrizesForCompetition(organisationId!, competitionId));
+            await listPrizesForCompetition(organisationId, competitionId)
+        );
 
         setSavingId(null);
     }
@@ -180,21 +159,12 @@ export default function Prizes() {
                     display: "flex",
                     alignItems: "center",
                     gap: 12,
-                    marginBottom: 12,
-                    flexWrap: "wrap",
+                    marginBottom: 16,
                 }}
             >
                 <h2 style={{ margin: 0, flex: 1 }}>Prizes</h2>
 
-                {/* ---------- Prize Mode Label ---------- */}
-                <div className="muted" style={{ whiteSpace: "nowrap" }}>
-                    Prize Mode:
-                </div>
-
-                {/* ---------- Combined / Split Toggle ---------- */}
-                {prizeMode === "combined" ? (
-                    <strong>Combined</strong>
-                ) : (
+                {prizeMode === "split" && (
                     <div style={{ display: "flex", gap: 4 }}>
                         <button
                             type="button"
@@ -222,28 +192,18 @@ export default function Prizes() {
                     </div>
                 )}
 
-                {/* ---------- Competition Selector ---------- */}
-                <select
-                    value={competitionId}
-                    onChange={(e) => {
-                        setCompetitionId(e.target.value);
-
-                        // 🔑 Reset category when switching competitions
-                        if (prizeMode === "split") {
-                            setActiveCategory("adult");
-                        }
+                {/* 🔑 PRIZE GIVING CTA */}
+                <Link
+                    to="prize-giving"
+                    className={`btn primary ${!hasAnyPrizes ? "disabled" : ""}`}
+                    aria-disabled={!hasAnyPrizes}
+                    onClick={(e) => {
+                        if (!hasAnyPrizes) e.preventDefault();
                     }}
-                    style={{ maxWidth: 320 }}
                 >
-                    <option value="">-- Select Competition --</option>
-                    {competitions.map((c) => (
-                        <option key={c.id} value={c.id}>
-                            {c.name}
-                        </option>
-                    ))}
-                </select>
+                    Prize Giving →
+                </Link>
             </div>
-
 
             {/* ================= SPECIES ================= */}
             {species.map((s) => {
@@ -375,7 +335,9 @@ export default function Prizes() {
                                             <button
                                                 className="btn btn-danger"
                                                 disabled={savingId === p.id}
-                                                onClick={() => removePrize(p)}
+                                                onClick={() =>
+                                                    removePrize(p)
+                                                }
                                             >
                                                 ✕
                                             </button>

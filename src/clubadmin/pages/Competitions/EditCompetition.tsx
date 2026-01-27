@@ -9,7 +9,20 @@
 // ============================================================================
 
 import { useEffect, useState, useMemo } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import {
+    useParams,
+    Link,
+    useNavigate,
+    Outlet,
+    useMatch,
+} from "react-router-dom";
+
+import {
+    listCompetitionPoints,
+    saveCompetitionPoints,
+} from "@/clubadmin/api/competitionPoints";
+
+
 
 // ============================================================================
 // Club-admin scoped APIs — competitions (PERSISTENCE / JOIN TABLES)
@@ -49,8 +62,100 @@ import CompetitionPrizes from "@/clubadmin/pages/CompetitionPrizes/CompetitionPr
 import CompetitionFeesCard from
     "@/clubadmin/pages/Competitions/components/CompetitionFeesCard";
 
+import type { CompetitionPointsRuleDTO } from "@/clubadmin/api/competitionPoints";
+
+function mapPointsRulesToModalState(
+    rules: CompetitionPointsRuleDTO[]
+): {
+    tagReleaseRules: TagReleaseRule[];
+    gameFishRules: LandedGroupRule[];
+} {
+    // -----------------------------
+    // TAG & RELEASE (flat points)
+    // -----------------------------
+
+    const tagReleaseMap = new Map<string, TagReleaseRule>();
+
+    for (const rule of rules) {
+        if (
+            rule.outcome !== "tagged_released" ||
+            rule.points_mode !== "flat" ||
+            !rule.species_group_code
+        ) {
+            continue;
+        }
+
+        if (!tagReleaseMap.has(rule.points_value.toString())) {
+            tagReleaseMap.set(rule.points_value.toString(), {
+                species_group_ids: [],
+                points: rule.points_value,
+            });
+        }
+
+        tagReleaseMap
+            .get(rule.points_value.toString())!
+            .species_group_ids.push(rule.species_group_code);
+    }
+
+    const tagReleaseRules = Array.from(tagReleaseMap.values());
+
+    // -----------------------------
+    // GAME FISH – LANDED (weight)
+    // -----------------------------
+
+    const gameFishRules: LandedGroupRule[] = rules
+        .filter(
+            r =>
+                r.outcome === "landed" &&
+                r.points_mode === "weight" &&
+                !!r.species_category_id
+        )
+        .map(r => ({
+            species_category_id: r.species_category_id!,
+            formula: {
+                multiplier: r.points_value,
+                divide_by_line_weight: r.divide_by_line_weight,
+            },
+        }));
+
+    return {
+        tagReleaseRules,
+        gameFishRules,
+    };
+}
+
+
 
 // Types
+
+type PointsFormula =
+    | { mode: "none" }
+    | { mode: "flat"; value: number }
+    | {
+        mode: "weight";
+        multiplier: number;
+        divide_by_line_weight: boolean;
+    };
+
+
+
+
+type TagReleaseRule = {
+    species_group_ids: string[]; // eg: ["marlin"]
+    points: number;
+};
+
+type LandedGroupRule = {
+    species_category_id: string; // eg: "tuna"
+    formula: {
+        multiplier: number;
+        divide_by_line_weight: boolean;
+    };
+};
+
+
+
+
 import type {
     Competition,
     CompetitionDay,
@@ -89,10 +194,24 @@ import {
 import FeedbackModal from "@/components/FeedbackModal";
 
 
-
-
 export default function EditCompetition() {
-    const navigate = useNavigate(); // ✅ ADD THIS LINE
+    const navigate = useNavigate();
+
+    // ...
+
+    // =============================
+    // Species Points Configuration
+    // =============================
+
+    const [tagReleaseRules, setTagReleaseRules] = useState<TagReleaseRule[]>([
+        {
+            species_group_ids: [],
+            points: 450,
+        },
+    ]);
+
+    const [gameFishRules, setGameFishRules] = useState<LandedGroupRule[]>([]);
+
 
     const [activeSection, setActiveSection] =
         useState<EditSection>("details");
@@ -123,6 +242,9 @@ export default function EditCompetition() {
     const [savedSpeciesIds, setSavedSpeciesIds] = useState<number[]>([]);
 
     const [hasResults, setHasResults] = useState(false);
+    const inPrizeGiving = !!useMatch(
+        "/clubadmin/:organisationId/admin/competitions/:id/edit/prize-giving"
+    );
 
 
     const [briefing, setBriefing] = useState<CompetitionBriefing>({
@@ -140,6 +262,8 @@ export default function EditCompetition() {
     // Modal state
     const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
     const [showDivisionModal, setShowDivisionModal] = useState(false);
+    const [showSpeciesPoints, setShowSpeciesPoints] = useState(false);
+
 
     // All divisions available in the system (NOT competition-specific)
     const [allDivisions, setAllDivisions] = useState<Division[]>([]);
@@ -304,6 +428,20 @@ export default function EditCompetition() {
                         setAllSpecies([]);
                     }
                 }
+                // -------------------------------------------------------------
+                // 9️⃣b️⃣ Competition points (AFTER species loaded)
+                // -------------------------------------------------------------
+                const points = await listCompetitionPoints(id);
+
+                if (!cancelled) {
+                    const {
+                        tagReleaseRules,
+                        gameFishRules,
+                    } = mapPointsRulesToModalState(points);
+
+                    setTagReleaseRules(tagReleaseRules);
+                    setGameFishRules(gameFishRules);
+                }
 
                 // -------------------------------------------------------------
                 // 9️⃣ Persisted competition species
@@ -346,6 +484,8 @@ export default function EditCompetition() {
     // =========================================================================
     // HELPERS
     // =========================================================================
+
+
 
     type SpeciesGroup = {
         categoryName: string;
@@ -508,6 +648,40 @@ export default function EditCompetition() {
                 id,
                 selectedSpeciesIds
             );
+            // --------------------------------------------------
+            // 6️⃣ SPECIES POINTS
+            // --------------------------------------------------
+            const rules: CompetitionPointsRuleDTO[] = [];
+
+            // TAG & RELEASE — FLAT
+            for (const rule of tagReleaseRules) {
+                for (const group of rule.species_group_ids) {
+                    rules.push({
+                        fishing_discipline: "game",
+                        outcome: "tagged_released",
+                        species_group_code: group,
+                        points_mode: "flat",
+                        points_value: rule.points,
+                        divide_by_line_weight: false,
+                        priority: 10,
+                    });
+                }
+            }
+
+            // GAME FISH — LANDED (WEIGHT)
+            for (const rule of gameFishRules) {
+                rules.push({
+                    fishing_discipline: "game",
+                    outcome: "landed",
+                    species_category_id: rule.species_category_id,
+                    points_mode: "weight",
+                    points_value: rule.formula.multiplier,
+                    divide_by_line_weight: rule.formula.divide_by_line_weight,
+                    priority: 20,
+                });
+            }
+
+            await saveCompetitionPoints(id, { rules });
 
             // --------------------------------------------------
             // 6️⃣ CLEAR DIRTY STATE (AUTHORITATIVE RESET)
@@ -566,6 +740,12 @@ export default function EditCompetition() {
         setDays((prev) => prev.filter((d) => d.id !== dayId));
     }
 
+    type RenderPointsRuleArgs = {
+        label: string;
+        rule: { landed: PointsFormula };
+        onChange: (landed: PointsFormula) => void;
+    };
+
 
     // =========================================================================
     // RENDER
@@ -581,27 +761,22 @@ export default function EditCompetition() {
             .sort((a, b) => a.sort_order - b.sort_order)
         : competitionDivisions;
 
-
-
-
     return (
         <>
-            {feedbackMessage && (
-                <FeedbackModal
-                    message={feedbackMessage}
-                    onClose={() => setFeedbackMessage(null)}
-                />
-            )}
-
             <section className="card admin-card">
+
                 <div className="edit-header">
                     <div className="edit-header-top">
                         <h2>Edit Competition</h2>
+
                         <span className="edit-context">
                             {competition.name}
                         </span>
 
-                        <Link to=".." className="btn btn--ghost">
+                        <Link
+                            to={`/clubadmin/${organisationId}/admin/competitions`}
+                            className="btn btn--ghost"
+                        >
                             ← Back to Competitions
                         </Link>
                     </div>
@@ -621,8 +796,6 @@ export default function EditCompetition() {
                         >
                             Fees
                         </button>
-
-
 
                         <button
                             className={`btn ${activeSection === "briefing" ? "primary" : ""}`}
@@ -652,9 +825,16 @@ export default function EditCompetition() {
                         >
                             Prizes
                         </button>
-
                     </div>
                 </div>
+
+
+                {feedbackMessage && (
+                    <FeedbackModal
+                        message={feedbackMessage}
+                        onClose={() => setFeedbackMessage(null)}
+                    />
+                )}
 
                 {showDeleteModal && (
                     <div className="modal-backdrop">
@@ -668,7 +848,6 @@ export default function EditCompetition() {
 
                             <p className="muted">
                                 This action cannot be undone.
-                                The competition will be permanently removed.
                             </p>
 
                             <div className="modal-actions">
@@ -683,10 +862,7 @@ export default function EditCompetition() {
                                 <button
                                     type="button"
                                     className="btn danger"
-                                    onClick={() => {
-                                        setShowDeleteModal(false);
-                                        handleDelete();
-                                    }}
+                                    onClick={handleDelete}
                                 >
                                     Delete Competition
                                 </button>
@@ -695,73 +871,209 @@ export default function EditCompetition() {
                     </div>
                 )}
 
-
-                {showDivisionModal && (
+                {showSpeciesPoints && (
                     <div className="modal-backdrop">
-                        <div className="modal card">
-                            <h3>Select divisions</h3>
+                        <div
+                            className="modal card"
+                            style={{
+                                maxWidth: 900,
+                                maxHeight: "85vh",
+                                overflowY: "auto",
+                            }}
+                        >
+                            <h3>Species Points</h3>
 
-                            <div className="division-list">
-                                {allDivisions.map(d => {
-                                    const selected = selectedDivisionIds.includes(d.id);
+                            <p className="muted">
+                                Configure how points are awarded for different fishing outcomes.
+                            </p>
+
+                            {/* =====================================================
+                                TAG & RELEASE – GAME FISH
+                               ===================================================== */}
+                            <section className="points-section">
+                                <h4>Tag & Release – Game Fish</h4>
+
+                                <p className="muted">
+                                    Applies when outcome is <strong>Tagged & Released</strong>
+                                </p>
+
+                                {groupedSpecies.map(group => {
+                                    const rule = tagReleaseRules.find(
+                                        r => r.species_group_ids.includes(group.categoryName)
+                                    );
 
                                     return (
                                         <div
-                                            key={d.id}
-                                            className={`division-row ${selected ? "is-selected" : ""}`}
-                                            onClick={() => {
-                                                setSelectedDivisionIds(prev => {
-                                                    const next = selected
-                                                        ? prev.filter(id => id !== d.id)
-                                                        : [...prev, d.id];
-
-                                                    const isDirty =
-                                                        next.length !== savedDivisionIds.length ||
-                                                        next.some(id => !savedDivisionIds.includes(id));
-
-                                                    setDivisionsDirty(isDirty);
-                                                    return next;
-                                                });
-                                            }}
-
+                                            key={group.categoryName}
+                                            className="points-row points-row--flat"
                                         >
-                                            <div className="division-checkbox">
-                                                {selected ? "✓" : ""}
+                                            {/* LEFT: LABEL + EXAMPLES */}
+                                            <div className="points-label">
+                                                <div>{group.categoryName}</div>
+                                                <div className="points-examples">
+                                                    {group.species
+                                                        .slice(0, 4)
+                                                        .map(s => s.name)
+                                                        .join(", ")}
+                                                    {group.species.length > 4 && "…"}
+                                                </div>
                                             </div>
 
-                                            <div className="division-name">
-                                                {d.name}
+                                            {/* RIGHT: FLAT POINTS */}
+                                            <div className="points-controls">
+                                                <input
+                                                    type="number"
+                                                    min={0}
+                                                    className="points-input small"
+                                                    value={rule?.points ?? 0}
+                                                    onChange={(e) => {
+                                                        const value = Number(e.target.value);
+
+                                                        setTagReleaseRules(prev => {
+                                                            const next = prev.filter(
+                                                                r =>
+                                                                    !r.species_group_ids.includes(
+                                                                        group.categoryName
+                                                                    )
+                                                            );
+
+                                                            next.push({
+                                                                species_group_ids: [group.categoryName],
+                                                                points: value,
+                                                            });
+
+                                                            return next;
+                                                        });
+                                                    }}
+                                                />
+                                                <span className="points-unit">pts</span>
                                             </div>
                                         </div>
                                     );
                                 })}
-                            </div>
+                            </section>
 
+                            {/* =====================================================
+                GAME FISH – LANDED
+            ===================================================== */}
+                            <section className="points-section">
+                                <h4>Game Fish – Landed</h4>
+
+                                {groupedSpecies.map(group => {
+                                    const rule = gameFishRules.find(
+                                        r => r.species_category_id === group.categoryName
+                                    );
+
+                                    return (
+                                        <div key={group.categoryName} className="points-row">
+                                            {/* LEFT: LABEL + EXAMPLES */}
+                                            <div className="points-label">
+                                                <div>{group.categoryName}</div>
+                                                <div className="points-examples">
+                                                    {group.species
+                                                        .slice(0, 4)
+                                                        .map(s => s.name)
+                                                        .join(", ")}
+                                                    {group.species.length > 4 && "…"}
+                                                </div>
+                                            </div>
+
+                                            {/* RIGHT: FORMULA */}
+                                            <div className="points-controls">
+                                                <div className="points-formula">
+                                                    <strong>Weight ×</strong>
+
+                                                    <input
+                                                        type="number"
+                                                        min={0}
+                                                        step={0.1}
+                                                        className="points-input small"
+                                                        value={rule?.formula.multiplier ?? 1}
+                                                        onChange={(e) => {
+                                                            const value = Number(e.target.value);
+
+                                                            setGameFishRules(prev => {
+                                                                const next = prev.filter(
+                                                                    r =>
+                                                                        r.species_category_id !==
+                                                                        group.categoryName
+                                                                );
+
+                                                                next.push({
+                                                                    species_category_id:
+                                                                        group.categoryName,
+                                                                    formula: {
+                                                                        multiplier: value,
+                                                                        divide_by_line_weight:
+                                                                            rule?.formula
+                                                                                .divide_by_line_weight ??
+                                                                            false,
+                                                                    },
+                                                                });
+
+                                                                return next;
+                                                            });
+                                                        }}
+                                                    />
+                                                </div>
+
+                                                <label className="points-checkbox">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={
+                                                            rule?.formula.divide_by_line_weight ??
+                                                            false
+                                                        }
+                                                        onChange={(e) => {
+                                                            const checked = e.target.checked;
+
+                                                            setGameFishRules(prev => {
+                                                                const next = prev.filter(
+                                                                    r =>
+                                                                        r.species_category_id !==
+                                                                        group.categoryName
+                                                                );
+
+                                                                next.push({
+                                                                    species_category_id:
+                                                                        group.categoryName,
+                                                                    formula: {
+                                                                        multiplier:
+                                                                            rule?.formula
+                                                                                .multiplier ?? 1,
+                                                                        divide_by_line_weight:
+                                                                            checked,
+                                                                    },
+                                                                });
+
+                                                                return next;
+                                                            });
+                                                        }}
+                                                    />
+                                                    Divide by line weight
+                                                </label>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </section>
+
+                            {/* =====================================================
+                ACTIONS
+            ===================================================== */}
                             <div className="modal-actions">
                                 <button
-                                    type="button"
                                     className="btn btn--ghost"
-                                    onClick={() => {
-                                        setSelectedDivisionIds(savedDivisionIds);
-                                        setDivisionsDirty(false);
-                                        setShowDivisionModal(false);
-                                    }}
-
+                                    onClick={() => setShowSpeciesPoints(false)}
                                 >
-                                    Cancel
-                                </button>
-
-                                <button
-                                    type="button"
-                                    className="btn primary"
-                                    onClick={() => setShowDivisionModal(false)}
-                                >
-                                    Done
+                                    Close
                                 </button>
                             </div>
                         </div>
                     </div>
                 )}
+
+
 
                 {/* ================= COMPETITION DETAILS ================= */}
                 {activeSection === "details" && (
@@ -910,12 +1222,11 @@ export default function EditCompetition() {
                                         <button
                                             type="button"
                                             className="btn btn--sm"
-                                            onClick={() => setShowDivisionModal(true)}
+                                            disabled
                                         >
-                                            {displayedDivisions.length === 0
-                                                ? "Add divisions"
-                                                : "Edit divisions"}
+                                            Edit divisions
                                         </button>
+
                                     </div>
                                 </div>
                             </div>
@@ -1213,37 +1524,54 @@ export default function EditCompetition() {
                         <div className="species-header-row">
                             <div className="species-title">
                                 <h3>Eligible Species</h3>
+                            </div>
+
+                            <div className="species-actions">
+                                {allowedFishTypeIds.length > 1 && (
+                                    <div className="species-discipline-toggle">
+                                        {allowedFishTypeIds.map((fishTypeId) => {
+                                            const count = selectedSpeciesIds.filter(id =>
+                                                allSpecies.some(
+                                                    s =>
+                                                        s.id === id &&
+                                                        s.fish_type_id === fishTypeId
+                                                )
+                                            ).length;
+
+                                            return (
+                                                <button
+                                                    key={fishTypeId}
+                                                    type="button"
+                                                    className={`btn btn--sm ${activeFishTypeId === fishTypeId ? "primary" : ""
+                                                        }`}
+                                                    onClick={() => setActiveFishTypeId(fishTypeId)}
+                                                >
+                                                    {fishTypeId === allowedFishTypeIds[0]
+                                                        ? "Game Fishing"
+                                                        : "Sport Fishing"}
+                                                    {count > 0 && ` (${count})`}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+
+                                {/* NEW: Species Points */}
+                                <button
+                                    type="button"
+                                    className="btn btn--sm"
+                                    onClick={() => {
+
+                                        setShowSpeciesPoints(true);
+                                    }}
+                                    disabled={selectedSpeciesIds.length === 0}
+                                >
+                                    Species Points
+                                </button>
+
+                            </div>
                         </div>
 
-                            {allowedFishTypeIds.length > 1 && (
-                                <div className="species-discipline-toggle">
-                                    {allowedFishTypeIds.map((fishTypeId) => {
-                                        const count = selectedSpeciesIds.filter(id =>
-                                            allSpecies.some(
-                                                s =>
-                                                    s.id === id &&
-                                                    s.fish_type_id === fishTypeId
-                                            )
-                                        ).length;
-
-                                    return (
-                                            <button
-                                                key={fishTypeId}
-                                                type="button"
-                                                className={`btn btn--sm ${activeFishTypeId === fishTypeId ? "primary" : ""
-                                                    }`}
-                                                onClick={() => setActiveFishTypeId(fishTypeId)}
-                                            >
-                                                {fishTypeId === allowedFishTypeIds[0]
-                                                    ? "Game Fishing"
-                                                    : "Sport Fishing"}
-                                                {count > 0 && ` (${count})`}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            )}
-                        </div>
 
 
                         {/* ================= SPECIES BY CATEGORY ================= */}
@@ -1287,15 +1615,17 @@ export default function EditCompetition() {
                     </section>
                 )}
                 {/* ================= PRIZES ================= */}
-                {activeSection === "prizes" && (
+                {activeSection === "prizes" && !inPrizeGiving && (
                     <CompetitionPrizes
                         embedded
                         competition={competition}
                         days={days}
                         divisions={competitionDivisions}
-                      //  hasResults={hasResults}
                     />
                 )}
+
+
+                <Outlet />
 
 
 
@@ -1314,24 +1644,24 @@ export default function EditCompetition() {
                                 Delete Competition
                             </button>
                         ) : (
-                                <div className="delete-disabled">
-                                    <button
-                                        type="button"
-                                        className="btn danger"
-                                        disabled
-                                        aria-describedby="delete-disabled-reason"
-                                    >
-                                        Delete Competition
-                                    </button>
+                            <div className="delete-disabled">
+                                <button
+                                    type="button"
+                                    className="btn danger"
+                                    disabled
+                                    aria-describedby="delete-disabled-reason"
+                                >
+                                    Delete Competition
+                                </button>
 
-                                    <p
-                                        id="delete-disabled-reason"
-                                        className="muted"
-                                        style={{ marginTop: 4 }}
-                                    >
-                                        This competition can’t be deleted because competitors are registered.
-                                    </p>
-                                </div>
+                                <p
+                                    id="delete-disabled-reason"
+                                    className="muted"
+                                    style={{ marginTop: 4 }}
+                                >
+                                    This competition can’t be deleted because competitors are registered.
+                                </p>
+                            </div>
 
                         )}
                     </div>
@@ -1354,5 +1684,5 @@ export default function EditCompetition() {
                 </div>
             </section>
         </>
-    );
+    )
 }

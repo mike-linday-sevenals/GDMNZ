@@ -1374,3 +1374,309 @@ button[aria-busy="true"] {
     cursor: wait;
     opacity: 0.7;
 }
+
+.species-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.points-rule {
+    padding: 12px 0;
+    border-bottom: 1px solid #eee;
+}
+
+.points-rule-header {
+    margin-bottom: 6px;
+}
+
+
+
+.points-input {
+    width: 80px;
+}
+
+.inline-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 8px;
+}
+
+.points-rule-options {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.points-option {
+    display: grid;
+    grid-template-columns: 24px auto 1fr;
+    align-items: center;
+    gap: 10px;
+}
+
+    .points-option.inline {
+        grid-template-columns: 24px auto auto auto;
+    }
+    .points-option input[type="number"]:disabled {
+        opacity: 0.4;
+    }
+.points-species-list {
+    max-height: 45vh;
+    overflow-y: auto;
+    padding-right: 8px;
+}
+.points-rule.is-inherited {
+    opacity: 0.6;
+    font-style: italic;
+}
+
+.points-input {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.modal {
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-content {
+    overflow-y: auto;
+    padding-right: 4px; /* prevents scrollbar overlap */
+}
+/* Scrollable modal body */
+.modal-content {
+    overscroll-behavior: contain;
+}
+/* =========================================================
+   Sections
+   ========================================================= */
+
+.points-section {
+    margin-bottom: 28px;
+}
+
+    .points-section h4 {
+        margin-bottom: 4px;
+    }
+
+    .points-section > .muted {
+        margin-bottom: 12px;
+    }
+
+/* =========================================================
+   Rows (core fix)
+   ========================================================= */
+
+.points-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 220px;
+    align-items: center;
+    gap: 24px;
+    padding: 12px 0;
+    border-bottom: 1px solid #eef1f5;
+}
+
+    .points-row:last-child {
+        border-bottom: none;
+    }
+
+/* =========================================================
+   Left side: label + examples
+   ========================================================= */
+
+.points-label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-width: 100%;
+}
+
+    .points-label > div:first-child {
+        font-weight: 500;
+    }
+
+.points-examples {
+    font-size: 12px;
+    color: var(--muted-text);
+    line-height: 1.3;
+}
+
+/* =========================================================
+   Right side: formula controls
+   ========================================================= */
+
+.points-controls {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+}
+
+/* Formula line (Weight × 1) */
+.points-formula {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--muted-text);
+}
+
+    .points-formula strong {
+        font-weight: 500;
+        color: inherit;
+    }
+
+.points-input.small {
+    width: 72px;
+    text-align: center;
+}
+
+/* Checkbox line */
+.points-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted-text);
+}
+
+/* =========================================================
+   Tag & Release (flat points rows)
+   ========================================================= */
+
+.points-row--flat {
+    grid-template-columns: minmax(0, 1fr) 140px;
+}
+
+    .points-row--flat .points-controls {
+        flex-direction: row;
+        align-items: center;
+        gap: 6px;
+    }
+
+.points-unit {
+    font-size: 12px;
+    color: var(--muted-text);
+}
+
+/* =========================================================
+   Selects
+   ========================================================= */
+
+.points-select.compact {
+    max-width: 280px;
+}
+
+/* =========================================================
+   Visual polish
+   ========================================================= */
+
+.points-rule.default {
+    background: #f8fafc;
+    border-left: 3px solid var(--primary);
+    padding-left: 12px;
+}
+
+.points-rule.is-inherited {
+    opacity: 0.6;
+}
+/* =========================================
+   GAME FISH – LANDED ALIGNMENT FIX
+========================================= */
+
+/* Force rows to align top, not center */
+.points-row {
+    align-items: flex-start;
+}
+
+/* Left column: lock width so right side lines up */
+.points-label {
+    max-width: 60%;
+    padding-top: 2px;
+}
+
+/* Right column: fixed width + vertical stacking */
+.points-controls {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+    min-width: 180px;
+}
+
+/* Formula row (Weight × input) */
+.points-formula {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Keep input visually aligned */
+.points-input.small {
+    width: 80px;
+    text-align: right;
+}
+
+/* Checkbox row */
+.points-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted-text);
+    white-space: nowrap;
+}
+
+/* Examples never push layout */
+.points-examples {
+    font-size: 12px;
+    color: var(--muted-text);
+    margin-top: 2px;
+    line-height: 1.3;
+}
+
+/* Optional: soften row separators */
+.points-row {
+    padding: 14px 0;
+    border-bottom: 1px solid #eef1f4;
+}
+.page-container {
+    max-width: 600px;
+    margin: 0 auto;
+    text-align: center;
+}
+
+.winner-card {
+    margin: 2rem 0;
+    padding: 2rem;
+    border-radius: 12px;
+    background: #111;
+    color: #fff;
+}
+
+.winner-name {
+    font-size: 2.2rem;
+    font-weight: bold;
+    margin-top: 1rem;
+}
+
+.winner-meta {
+    opacity: 0.7;
+    margin-top: 0.5rem;
+}
+
+.actions {
+    margin-top: 2rem;
+}
+
+.btn.primary {
+    font-size: 1.1rem;
+    padding: 0.75rem 1.5rem;
+}
+
+.finished-message {
+    margin-top: 2rem;
+    font-size: 1.2rem;
+}

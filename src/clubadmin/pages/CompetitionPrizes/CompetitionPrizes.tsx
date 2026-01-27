@@ -10,6 +10,11 @@ import { useEffect, useMemo, useState } from "react";
 import type { Competition, CompetitionDay } from "@/types";
 import type { Division as ApiDivision } from "@/clubadmin/api/divisions";
 
+import { Link } from "react-router-dom";
+import { useMatch } from "react-router-dom";
+
+
+
 import {
     listCompetitionSpecies,
     type CompetitionSpecies,
@@ -693,7 +698,11 @@ export default function CompetitionPrizes({
                     </div>
 
                     <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                        <button className="btn" onClick={() => refetch()} disabled={loading || saving}>
+                        <button
+                            className="btn"
+                            onClick={() => refetch()}
+                            disabled={loading || saving}
+                        >
                             Refresh
                         </button>
 
@@ -708,7 +717,10 @@ export default function CompetitionPrizes({
                             onClick={() => {
                                 setWiz(
                                     defaultPrizeWizardState({
-                                        singleFishTypeId: fishTypes.length === 1 ? fishTypes[0].fish_type_id : null,
+                                        singleFishTypeId:
+                                            fishTypes.length === 1
+                                                ? fishTypes[0].fish_type_id
+                                                : null,
                                         defaultCount: 3,
                                     })
                                 );
@@ -717,9 +729,17 @@ export default function CompetitionPrizes({
                         >
                             Add prize
                         </button>
-                    </div>
-                </div>
 
+                        {/* 🔑 THIS IS THE MISSING BUTTON */}
+                        <Link
+                            to="prize-giving"
+                            className="btn primary"
+                        >
+                            Prize Giving →
+                        </Link>
+                    </div>
+
+                </div>
 
                 <p className="muted" style={{ marginTop: 10 }}>
                     Wizard will create prize definitions for:{" "}

@@ -57,6 +57,8 @@ export async function fetchCompetitionFees(
 
 export type BoatType = "Launch" | "Trailer" | "Charter";
 
+
+
 // ============================================================================
 // COMPETITOR SAFETY CHECKS
 // ============================================================================
@@ -141,6 +143,33 @@ export async function listPrizeModes() {
 
     if (error) throw error;
     return data ?? [];
+}
+
+// ============================================================================
+// Fish Types
+// ============================================================================
+
+export async function listFishTypes(): Promise<
+    { id: string; name: string }[]
+> {
+    if (!client) {
+        throw new Error("Supabase client not initialised");
+    }
+
+    const { data, error } = await client
+        .from("fish_type")
+        .select("fish_type_id, name")
+        .eq("is_active", true)
+        .order("name");
+
+    if (error) {
+        throw error;
+    }
+
+    return (data ?? []).map(row => ({
+        id: row.fish_type_id,
+        name: row.name,
+    }));
 }
 
 
@@ -310,7 +339,6 @@ export async function listCompetitionSpecies(
 export async function listCompetitions(organisationId?: string) {
     if (!client) return [];
 
-    // 🔐 If no organisation provided, return nothing (safety)
     if (!organisationId) return [];
 
     const { data, error } = await client
@@ -320,7 +348,10 @@ export async function listCompetitions(organisationId?: string) {
                 id,
                 name,
                 starts_at,
-                ends_at
+                ends_at,
+                competition_type:competition_type_id (
+                    code
+                )
             )
         `)
         .eq("organisation_id", organisationId)
@@ -329,13 +360,30 @@ export async function listCompetitions(organisationId?: string) {
     if (error) throw error;
 
     return (data || [])
-        .map((row: any) =>
-            Array.isArray(row.competition)
+        .map((row: any) => {
+            const comp = Array.isArray(row.competition)
                 ? row.competition[0]
-                : row.competition
-        )
+                : row.competition;
+
+            if (!comp) return null;
+
+            const ct = Array.isArray(comp.competition_type)
+                ? comp.competition_type[0]
+                : comp.competition_type;
+
+            return {
+                id: comp.id,
+                name: comp.name,
+                starts_at: comp.starts_at,
+                ends_at: comp.ends_at,
+
+                // 🔑 THIS IS WHAT THE UI NEEDS
+                competition_type_code: ct?.code ?? "mixed",
+            };
+        })
         .filter(Boolean);
 }
+
 
 
 export async function addCompetition(
