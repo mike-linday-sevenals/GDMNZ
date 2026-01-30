@@ -20,7 +20,7 @@ import ClubData from "./clubadmin/pages/Data";
 import AdminSponsors from "./clubadmin/pages/AdminSponsors";
 
 /* =====================================================================
-   🧭 CLUB ADMIN (COMPETITION / ORG ADMIN)
+   🧭 CLUB ADMIN (SETUP / MANAGEMENT)
    ===================================================================== */
 import Admin from "./clubadmin/pages/Admin";
 import CompetitionsList from "./clubadmin/pages/Competitions/CompetitionsList";
@@ -29,7 +29,12 @@ import EditCompetition from "./clubadmin/pages/Competitions/EditCompetition";
 import PrizeEngineValidationPage from "./clubadmin/pages/Competitions/PrizeEngine/PrizeEngineValidationPage";
 
 /* =====================================================================
-   🎰 RANDOM LISTS
+   🏆 PRIZE GIVING (LIVE / PRESENTATION)
+   ===================================================================== */
+import PrizeGiving from "@/clubadmin/pages/PrizeGiving";
+
+/* =====================================================================
+   🎰 RANDOM LIST DRAWS
    ===================================================================== */
 import DrawRandomListPage from "./clubadmin/pages/RandomLists/DrawRandomListPage";
 
@@ -85,12 +90,18 @@ export default function App() {
                 <Route path="submit" element={<SubmissionPage />} />
                 <Route path="results" element={<ClubResults />} />
                 <Route path="data" element={<ClubData />} />
-
-                {/* Sponsors */}
                 <Route path="sponsors" element={<AdminSponsors />} />
 
                 {/* ===========================================================
-                   🧭 ADMIN AREA
+                   🏆 PRIZE GIVING (LIVE SCREEN)
+                   =========================================================== */}
+                <Route
+                    path="prize-giving"
+                    element={<PrizeGiving />}
+                />
+
+                {/* ===========================================================
+                   🧭 ADMIN AREA (COMPETITION SETUP)
                    =========================================================== */}
                 <Route path="admin" element={<Admin />}>
                     <Route
@@ -98,7 +109,10 @@ export default function App() {
                         element={<Navigate to="competitions" replace />}
                     />
 
-                    <Route path="competitions" element={<CompetitionsList />}>
+                    <Route
+                        path="competitions"
+                        element={<CompetitionsList />}
+                    >
                         <Route path="add" element={<AddCompetition />} />
 
                         <Route path=":id">
@@ -107,17 +121,22 @@ export default function App() {
                                 element={<Navigate to="edit" replace />}
                             />
 
-                            <Route path="edit" element={<EditCompetition />}>
+                            <Route
+                                path="edit"
+                                element={<EditCompetition />}
+                            >
                                 <Route
                                     path="prize-giving"
-                                    element={<PrizeEngineValidationPage embedded />}
+                                    element={
+                                        <PrizeEngineValidationPage embedded />
+                                    }
                                 />
                             </Route>
                         </Route>
                     </Route>
 
                     {/* =======================================================
-                       🎰 RANDOM LIST DRAW
+                       🎰 RANDOM LIST DRAW (MC / LIVE DRAW)
                        ======================================================= */}
                     <Route
                         path="random-lists/:randomListId/draw"

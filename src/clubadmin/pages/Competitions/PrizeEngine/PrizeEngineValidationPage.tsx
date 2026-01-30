@@ -2,9 +2,9 @@
 // File: PrizeEngineValidationPage.tsx
 // Description:
 // Embedded prize engine validation (EditCompetition → Prize Giving)
-// - Inline engine output per prize
-// - Winning row highlighted
-// - "Why" explanation rendered full-width under each row
+// - Species prizes: deterministic preview (ordered = authoritative)
+// - Spot prizes: prepare list → preview eligible entries → randomise
+// UI mirrors PROD layout exactly, including ranked prizes (2nd / 3rd / etc.)
 // ============================================================================
 
 import { useEffect, useState } from "react";
@@ -19,6 +19,13 @@ import {
     previewPrizeEngine,
     type PrizeEnginePreviewRow,
 } from "@/clubadmin/api/prizeEngine";
+
+import {
+    ensureRandomListForPrize,
+    randomiseRandomList,
+} from "@/clubadmin/api/randomLists";
+
+import { client } from "@/services/api";
 
 // ============================================================================
 // Helpers
@@ -43,31 +50,26 @@ function formatDateTimeNZ(value: string) {
     };
 }
 
-function explainInclusion(
-    prize: PrizeDefinitionRow,
-    row: PrizeEnginePreviewRow
-): string {
-    let outcomePart = "Outcome ignored (any)";
+/**
+ * Derive awarded rank from prize display name.
+ * Examples:
+ *  - "... · 1st" → 0
+ *  - "... · 2nd" → 1
+ *  - "... · 3rd" → 2
+ *  - "... · 4th" → 3
+ *  - no suffix  → 0 (default = first)
+ */
+function getWinningIndex(prize: PrizeDefinitionRow): number {
+    const match = prize.display_name.match(
+        /\b(\d+)(st|nd|rd|th)\b/i
+    );
 
-    if (prize.outcome_filter === "tagged_released") {
-        outcomePart = "Outcome matched: tagged & released";
-    } else if (prize.outcome_filter === "landed") {
-        outcomePart =
-            row.outcome === "landed"
-                ? "Outcome matched: landed"
-                : "Sport fish treated as landed";
-    }
+    if (!match) return 0;
 
-    let rankingPart = "Ordered by priority time";
+    const n = parseInt(match[1], 10);
+    if (Number.isNaN(n) || n < 1) return 0;
 
-    if (prize.award_rule === "ranked") {
-        rankingPart =
-            prize.result_method === "measured"
-                ? "Ordered by length (cm)"
-                : "Ordered by weight (kg)";
-    }
-
-    return `${outcomePart} · ${rankingPart}`;
+    return n - 1;
 }
 
 // ============================================================================
@@ -77,6 +79,13 @@ function explainInclusion(
 type Props = {
     embedded?: boolean;
 };
+
+type SpotListState = {
+    randomListId: string;
+    randomised: boolean;
+    entries: { id: string; display_name: string }[];
+};
+
 
 export default function PrizeEngineValidationPage({ embedded = false }: Props) {
     const { id: competitionId } = useParams<{ id: string }>();
@@ -88,12 +97,16 @@ export default function PrizeEngineValidationPage({ embedded = false }: Props) {
         Record<string, PrizeEnginePreviewRow[]>
     >({});
 
+    const [spotState, setSpotState] = useState<
+        Record<string, SpotListState>
+    >({});
+
     const [loadingPrizeId, setLoadingPrizeId] = useState<string | null>(null);
-    const [errorPrizeId, setErrorPrizeId] = useState<string | null>(null);
 
     // ------------------------------------------------------------------------
     // Load prize definitions
     // ------------------------------------------------------------------------
+
     useEffect(() => {
         if (!competitionId) return;
 
@@ -104,8 +117,9 @@ export default function PrizeEngineValidationPage({ embedded = false }: Props) {
     }, [competitionId]);
 
     // ------------------------------------------------------------------------
-    // Run engine preview (per prize)
+    // Toggle prize
     // ------------------------------------------------------------------------
+
     async function togglePrize(prize: PrizeDefinitionRow) {
         if (openPrizeId === prize.id) {
             setOpenPrizeId(null);
@@ -113,29 +127,90 @@ export default function PrizeEngineValidationPage({ embedded = false }: Props) {
         }
 
         setOpenPrizeId(prize.id);
+
+        if (prize.prize_type !== "spot") {
+            setLoadingPrizeId(prize.id);
+            try {
+                const data = await previewPrizeEngine(
+                    competitionId!,
+                    prize.id
+                );
+                setRowsByPrize((prev) => ({
+                    ...prev,
+                    [prize.id]: data,
+                }));
+            } finally {
+                setLoadingPrizeId(null);
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // Spot prize actions
+    // ------------------------------------------------------------------------
+
+    async function handlePrepareSpotPrize(prize: PrizeDefinitionRow) {
+        if (!competitionId) return;
+
         setLoadingPrizeId(prize.id);
-        setErrorPrizeId(null);
 
         try {
-            const data = await previewPrizeEngine(competitionId!, prize.id);
-            setRowsByPrize((prev) => ({ ...prev, [prize.id]: data }));
-        } catch (err) {
-            console.error(err);
-            setErrorPrizeId(prize.id);
+            const { random_list_id } =
+                await ensureRandomListForPrize({
+                    competitionId,
+                    prizeId: prize.id,
+                });
+
+            const { data: list } = await client!
+                .from("random_list")
+                .select("randomised_at")
+                .eq("id", random_list_id)
+                .single();
+
+            const { data: entries } = await client!
+                .from("random_list_entry")
+                .select("id, display_name")
+                .eq("random_list_id", random_list_id)
+                .order("display_name");
+
+            setSpotState((prev) => ({
+                ...prev,
+                [prize.id]: {
+                    randomListId: random_list_id,
+                    randomised: !!list?.randomised_at,
+                    entries: entries ?? [],
+                },
+            }));
+        } finally {
+            setLoadingPrizeId(null);
+        }
+    }
+
+    async function handleRandomise(prize: PrizeDefinitionRow) {
+        const state = spotState[prize.id];
+        if (!state) return;
+
+        setLoadingPrizeId(prize.id);
+
+        try {
+            await randomiseRandomList(state.randomListId);
+            setSpotState((prev) => ({
+                ...prev,
+                [prize.id]: { ...state, randomised: true },
+            }));
         } finally {
             setLoadingPrizeId(null);
         }
     }
 
     // ------------------------------------------------------------------------
-    // Content
+    // Render
     // ------------------------------------------------------------------------
+
     const content = (
         <>
-            {/* ================= HEADER ================= */}
             <div className="card-header">
                 <h3>Prize Giving — Validation</h3>
-
                 <Link to=".." className="btn btn--ghost">
                     ← Back to Prizes
                 </Link>
@@ -145,10 +220,10 @@ export default function PrizeEngineValidationPage({ embedded = false }: Props) {
 
             {prizes.map((prize) => {
                 const isOpen = openPrizeId === prize.id;
-                const rows = rowsByPrize[prize.id] ?? [];
+                const rows = rowsByPrize[prize.id];
+                const spot = spotState[prize.id];
 
-                const winningRank =
-                    prize.award_rule === "ranked" ? prize.place : 1;
+                const winningIndex = getWinningIndex(prize);
 
                 return (
                     <div
@@ -160,7 +235,7 @@ export default function PrizeEngineValidationPage({ embedded = false }: Props) {
                             overflow: "hidden",
                         }}
                     >
-                        {/* Prize header */}
+                        {/* Header */}
                         <div
                             onClick={() => togglePrize(prize)}
                             style={{
@@ -169,7 +244,7 @@ export default function PrizeEngineValidationPage({ embedded = false }: Props) {
                                 background: isOpen ? "#f8fafc" : "#fff",
                             }}
                         >
-                            <div style={{ fontWeight: 600, lineHeight: 1.4 }}>
+                            <div style={{ fontWeight: 600 }}>
                                 {prize.display_name}
                             </div>
                             <div className="muted" style={{ fontSize: 13 }}>
@@ -177,99 +252,139 @@ export default function PrizeEngineValidationPage({ embedded = false }: Props) {
                             </div>
                         </div>
 
-                        {/* Engine output */}
+                        {/* Content */}
                         {isOpen && (
-                            <div
-                                style={{
-                                    borderTop: "1px solid #e5e7eb",
-                                    background: "#fafafa",
-                                }}
-                            >
-                                {loadingPrizeId === prize.id && (
-                                    <p className="muted" style={{ padding: 12 }}>
-                                        Running prize engine…
-                                    </p>
+                            <div style={{ background: "#fafafa" }}>
+                                {/* SPOT PRIZE */}
+                                {prize.prize_type === "spot" && (
+                                    <div style={{ padding: 12 }}>
+                                        {!spot && (
+                                            <button
+                                                onClick={() =>
+                                                    handlePrepareSpotPrize(
+                                                        prize
+                                                    )
+                                                }
+                                                disabled={
+                                                    loadingPrizeId === prize.id
+                                                }
+                                            >
+                                                Prepare draw list
+                                            </button>
+                                        )}
+
+                                        {spot && (
+                                            <>
+                                                <p className="muted">
+                                                    Eligible entries (
+                                                    {spot.entries.length})
+                                                </p>
+                                                <ul>
+                                                    {spot.entries.map((e) => (
+                                                        <li key={e.id}>
+                                                            {e.display_name}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+
+                                                {!spot.randomised && (
+                                                    <button
+                                                        onClick={() =>
+                                                            handleRandomise(
+                                                                prize
+                                                            )
+                                                        }
+                                                    >
+                                                        Run randomisation
+                                                    </button>
+                                                )}
+
+                                                {spot.randomised && (
+                                                    <p className="muted">
+                                                        ✅ Randomised — ready to
+                                                        draw
+                                                    </p>
+                                                )}
+                                            </>
+                                        )}
+                                    </div>
                                 )}
 
-                                {rows.map((r) => {
-                                    const isWinner =
-                                        r.rank === winningRank;
-                                    const { date, time } =
-                                        formatDateTimeNZ(
-                                            r.priority_timestamp
-                                        );
+                                {/* SPECIES PRIZE — PROD MIRROR */}
+                                {prize.prize_type !== "spot" &&
+                                    rows?.map((r, index) => {
+                                        const isWinner =
+                                            index === winningIndex;
 
-                                    return (
-                                        <div
-                                            key={r.catch_submission_id}
-                                            style={{
-                                                padding: 12,
-                                                borderBottom:
-                                                    "1px solid #e5e7eb",
-                                                background: isWinner
-                                                    ? "rgba(34,197,94,0.12)"
-                                                    : "transparent",
-                                                borderLeft: isWinner
-                                                    ? "4px solid #22c55e"
-                                                    : "4px solid transparent",
-                                            }}
-                                        >
-                                            {/* Main row */}
+                                        const { date, time } =
+                                            formatDateTimeNZ(
+                                                r.priority_timestamp
+                                            );
+
+                                        return (
                                             <div
+                                                key={r.catch_submission_id}
                                                 style={{
                                                     display: "grid",
                                                     gridTemplateColumns:
-                                                        "48px 1.4fr 1.2fr 1fr 1fr 1.3fr 80px 80px",
-                                                    gap: 8,
-                                                    alignItems: "center",
+                                                        "40px 1.4fr 1.2fr 1.2fr 1.2fr 140px 80px 80px",
+                                                    gap: 12,
+                                                    padding: "12px 16px",
+                                                    borderBottom:
+                                                        "1px solid #e5e7eb",
+                                                    background: isWinner
+                                                        ? "#e8f7ee"
+                                                        : "#fff",
+                                                    borderLeft: isWinner
+                                                        ? "4px solid #22c55e"
+                                                        : "4px solid transparent",
                                                 }}
                                             >
-                                                <strong>{r.rank}</strong>
+                                                <div style={{ fontWeight: 600 }}>
+                                                    {index + 1}
+                                                </div>
+
                                                 <div>{r.competitor_name}</div>
                                                 <div>{r.species_name}</div>
+                                                <div className="muted">—</div>
+                                                <div>{r.outcome}</div>
+
                                                 <div>
-                                                    {r.species_category_name ??
-                                                        "—"}
-                                                </div>
-                                                <div>{r.outcome ?? "—"}</div>
-                                                <div>
-                                                    {date}
-                                                    <br />
-                                                    <span className="muted">
+                                                    <div>{date}</div>
+                                                    <div className="muted">
                                                         {time}
-                                                    </span>
+                                                    </div>
                                                 </div>
+
                                                 <div>
-                                                    {r.weight_kg ?? "—"}
+                                                    {r.weight_kg != null
+                                                        ? `${r.weight_kg.toFixed(
+                                                            2
+                                                        )} kg`
+                                                        : "—"}
                                                 </div>
+
                                                 <div>
-                                                    {r.length_cm ?? "—"}
+                                                    {r.length_cm != null
+                                                        ? `${r.length_cm} cm`
+                                                        : "—"}
+                                                </div>
+
+                                                <div
+                                                    style={{
+                                                        gridColumn: "1 / -1",
+                                                        fontSize: 12,
+                                                        color: "#6b7280",
+                                                        marginTop: 4,
+                                                    }}
+                                                >
+                                                    Outcome matched:{" "}
+                                                    {r.outcome} · Ordered by{" "}
+                                                    {prize.award_rule}
                                                 </div>
                                             </div>
-
-                                            {/* WHY (full width) */}
-                                            <div
-                                                className="muted"
-                                                style={{
-                                                    marginTop: 8,
-                                                    fontSize: 13,
-                                                    lineHeight: 1.4,
-                                                }}
-                                            >
-                                                {explainInclusion(prize, r)}
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-
-                                {!loadingPrizeId && rows.length === 0 && (
-                                    <p
-                                        className="muted"
-                                        style={{ padding: 12 }}
-                                    >
-                                        No submissions matched this prize.
-                                    </p>
-                                )}
+                                        );
+                                    })}
                             </div>
                         )}
                     </div>
@@ -278,12 +393,9 @@ export default function PrizeEngineValidationPage({ embedded = false }: Props) {
         </>
     );
 
-    // ------------------------------------------------------------------------
-    // Embedded vs standalone rendering
-    // ------------------------------------------------------------------------
-    if (embedded) {
-        return <section className="card">{content}</section>;
-    }
-
-    return <section className="card admin-card">{content}</section>;
+    return embedded ? (
+        <section className="card">{content}</section>
+    ) : (
+        <section className="card admin-card">{content}</section>
+    );
 }

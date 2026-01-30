@@ -59,7 +59,7 @@ export default function ClubAdminLayout() {
                         <div style={{ display: "flex", gap: 6 }}>
                             <NavLink to="register">Register</NavLink>
                             <NavLink to="submit">Submit</NavLink>
-                            <NavLink to="prizegiving">Prize Giving</NavLink>
+                            <NavLink to={`/clubadmin/${organisationId}/prize-giving`}>Prize Giving</NavLink>
                         </div>
 
                         {/* RIGHT */}

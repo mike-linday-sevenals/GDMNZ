@@ -11,12 +11,14 @@ import type { Competition, CompetitionDay, Species } from "@/types";
 // ============================================================================
 // LOCAL API TYPES
 // ============================================================================
+export type CompetitionStatus = "not_started" | "active" | "completed";
 
 export type CompetitionListItem = {
     id: string;
     name: string;
     starts_at: string;
     ends_at: string;
+    status: CompetitionStatus; // ✅ add
 };
 
 export type CompetitionTypeRow = {
@@ -139,7 +141,8 @@ export async function listCompetitions(
                 id,
                 name,
                 starts_at,
-                ends_at
+                ends_at,
+                status
             )
         `)
         .eq("organisation_id", organisationId)
@@ -158,9 +161,11 @@ export async function listCompetitions(
             name: c.name,
             starts_at: c.starts_at,
             ends_at: c.ends_at,
+            status: (c.status ?? "not_started") as CompetitionStatus,
         };
     });
 }
+
 
 export async function addCompetition(
     organisationId: string,

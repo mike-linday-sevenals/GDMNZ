@@ -1,32 +1,27 @@
 ﻿// ============================================================================
-// DrawRandomListPage.tsx
+// File: DrawRandomListPage.tsx
 // Description:
-//  - Run & manage a deterministic random draw (MT19937)
-//  - Schema-aligned with random_list + random_list_entry
+//  - LIVE spot prize draw display
+//  - One draw at a time
+//  - Rehydrates from DB on refresh
+//  - Stage-style reveal with fishing line animation
 // ============================================================================
 
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
+
 import { client } from "@/services/api";
+import { drawNextRandomListEntry } from "@/clubadmin/api/randomLists";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 // ============================================================================
-// Types (schema-aligned)
+// Types
 // ============================================================================
 
-type RandomList = {
-    id: string;
-    name: string;
-    description: string | null;
-    status: "draft" | "randomised" | "completed";
-    randomised_at: string | null;
-};
-
-type RandomListEntry = {
-    id: string;
-    display_name: string;
-    random_order: number | null;
-    selected_at: string | null;
-    selected_order: number | null;
+export type DrawnEntry = {
+    entry_id: string;
+    entry_name: string;
+    random_order: number;
 };
 
 // ============================================================================
@@ -34,113 +29,105 @@ type RandomListEntry = {
 // ============================================================================
 
 export default function DrawRandomListPage() {
-    const { randomListId } = useParams<{ randomListId: string }>();
+    // ✅ IMPORTANT: include organisationId so we can link back to Prize Giving
+    const { organisationId, randomListId } = useParams<{
+        organisationId: string;
+        randomListId: string;
+    }>();
 
-    const [list, setList] = useState<RandomList | null>(null);
-    const [remaining, setRemaining] = useState<RandomListEntry[]>([]);
-    const [drawn, setDrawn] = useState<RandomListEntry[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const [currentWinner, setCurrentWinner] =
+        useState<DrawnEntry | null>(null);
+    const [drawn, setDrawn] = useState<DrawnEntry[]>([]);
+    const [isDrawing, setIsDrawing] = useState(false);
+    const [isComplete, setIsComplete] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
+
+    const [isRevealing, setIsRevealing] = useState(false);
 
     // ------------------------------------------------------------------
-    // Load list + entries
+    // Rehydrate from DB on mount
     // ------------------------------------------------------------------
-
-    async function loadData() {
-        try {
-            if (!client) throw new Error("Supabase not initialised");
-            if (!randomListId) throw new Error("Missing random list id");
-
-            setLoading(true);
-            setError(null);
-
-            // Load list
-            const { data: listData, error: listError } = await client
-                .from("random_list")
-                .select("id, name, description, status, randomised_at")
-                .eq("id", randomListId)
-                .single();
-
-            if (listError) throw listError;
-            setList(listData);
-
-            // Load remaining (not yet drawn)
-            const { data: remainingData, error: remainingError } =
-                await client
-                    .from("random_list_entry")
-                    .select(
-                        "id, display_name, random_order, selected_at, selected_order"
-                    )
-                    .eq("random_list_id", randomListId)
-                    .is("selected_at", null)
-                    .order("random_order");
-
-            if (remainingError) throw remainingError;
-            setRemaining(remainingData ?? []);
-
-            // Load drawn
-            const { data: drawnData, error: drawnError } = await client
-                .from("random_list_entry")
-                .select(
-                    "id, display_name, random_order, selected_at, selected_order"
-                )
-                .eq("random_list_id", randomListId)
-                .not("selected_at", "is", null)
-                .order("selected_order");
-
-            if (drawnError) throw drawnError;
-            setDrawn(drawnData ?? []);
-        } catch (err: any) {
-            setError(err.message ?? "Failed to load draw");
-        } finally {
-            setLoading(false);
-        }
-    }
 
     useEffect(() => {
-        loadData();
+        if (!randomListId) return;
+
+        const supabase = client;
+        if (!supabase) {
+            console.error("[LiveDraw] Supabase client not initialised");
+            setIsLoading(false);
+            return;
+        }
+
+        loadExistingDraws(supabase, randomListId);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [randomListId]);
 
-    // ------------------------------------------------------------------
-    // Run randomisation (RPC)
-    // ------------------------------------------------------------------
+    async function loadExistingDraws(
+        supabase: SupabaseClient,
+        randomListId: string
+    ) {
+        const { data, error } = await supabase
+            .from("random_list_entry")
+            .select(
+                `
+                id,
+                display_name,
+                random_order,
+                selected_order
+            `
+            )
+            .eq("random_list_id", randomListId)
+            .not("selected_at", "is", null)
+            .order("selected_order", { ascending: true });
 
-    async function handleRandomise() {
-        try {
-            if (!client) throw new Error("Supabase not initialised");
-
-            const { error } = await client.rpc(
-                "persist_random_list_order",
-                {
-                    p_random_list_id: randomListId,
-                }
-            );
-
-            if (error) throw error;
-
-            await loadData();
-        } catch (err: any) {
-            alert(err.message ?? "Failed to randomise");
+        if (error) {
+            console.error("[LiveDraw] Failed to load existing draws", error);
+            setIsLoading(false);
+            return;
         }
+
+        if (!data || data.length === 0) {
+            setIsLoading(false);
+            return;
+        }
+
+        const hydrated: DrawnEntry[] = data.map((row) => ({
+            entry_id: row.id,
+            entry_name: row.display_name,
+            random_order: row.random_order,
+        }));
+
+        setDrawn(hydrated);
+        setCurrentWinner(hydrated[hydrated.length - 1]);
+        setIsLoading(false);
     }
 
     // ------------------------------------------------------------------
-    // Draw next entry (RPC)
+    // Draw next winner
     // ------------------------------------------------------------------
 
-    async function handleDrawNext() {
+    async function drawNext() {
+        if (!randomListId || isDrawing || isComplete) return;
+
         try {
-            if (!client) throw new Error("Supabase not initialised");
+            setIsDrawing(true);
+            setIsRevealing(true);
 
-            const { error } = await client.rpc("draw_next_random_list_entry", {
-                p_random_list_id: randomListId,
-            });
+            const result = await drawNextRandomListEntry(randomListId);
 
-            if (error) throw error;
+            if (!result) {
+                setIsComplete(true);
+                setCurrentWinner(null);
+                return;
+            }
 
-            await loadData();
-        } catch (err: any) {
-            alert(err.message ?? "Failed to draw next");
+            setTimeout(() => {
+                setCurrentWinner(result);
+                setDrawn((prev) => [...prev, result]);
+                setIsRevealing(false);
+            }, 900); // animation timing
+        } finally {
+            setIsDrawing(false);
         }
     }
 
@@ -148,63 +135,84 @@ export default function DrawRandomListPage() {
     // Render
     // ------------------------------------------------------------------
 
-    if (loading) {
-        return <div className="page">Loading draw…</div>;
+    if (isLoading) {
+        return (
+            <section className="card live-draw-loading">
+                <h2>Loading draw…</h2>
+            </section>
+        );
     }
-
-    if (error) {
-        return <div className="page error">{error}</div>;
-    }
-
-    if (!list) {
-        return <div className="page">Random list not found</div>;
-    }
-
-    const isRandomised = !!list.randomised_at;
 
     return (
-        <div className="page random-draw-page">
-            <h1>🎰 Random Draw</h1>
+        <section className="live-draw-page">
+            {/* ================= STAGE ================= */}
+            <div className="card live-draw-stage">
+                <header className="stage-header">
+                    <h1>🎣 Live Draw</h1>
+                    <p>Press the button to reel in the next winner</p>
+                </header>
 
-            <h3>{list.name}</h3>
-            {list.description && (
-                <p className="muted">{list.description}</p>
-            )}
+                <div className="winner-stage">
+                    {/* Fishing line */}
+                    <div
+                        className={`fishing-line ${isRevealing ? "drop" : ""
+                            }`}
+                    >
+                        <div className="hook" />
+                    </div>
 
-            {/* Actions */}
-            <div className="actions">
-                {!isRandomised && (
-                    <button onClick={handleRandomise}>
-                        Run Randomisation
-                    </button>
-                )}
+                    {/* Winner reveal */}
+                    <div
+                        className={`winner-name ${isRevealing ? "hidden" : "show"
+                            }`}
+                    >
+                        {currentWinner
+                            ? currentWinner.entry_name
+                            : isComplete
+                                ? "🎊 Draw Complete"
+                                : "Ready…"}
+                    </div>
+                </div>
 
-                {isRandomised && remaining.length > 0 && (
-                    <button onClick={handleDrawNext}>
-                        Draw Next
+                {!isComplete && (
+                    <button
+                        className="btn btn-primary btn-lg"
+                        onClick={drawNext}
+                        disabled={isDrawing}
+                    >
+                        {isDrawing ? "Drawing…" : "🎯 DRAW NEXT"}
                     </button>
                 )}
             </div>
 
-            {/* Remaining */}
-            <section>
-                <h4>Remaining ({remaining.length})</h4>
-                <ul>
-                    {remaining.map((e) => (
-                        <li key={e.id}>{e.display_name}</li>
-                    ))}
-                </ul>
-            </section>
+            {/* ================= HISTORY ================= */}
+            <div className="card live-draw-history">
+                <h3>Drawn so far</h3>
 
-            {/* Drawn */}
-            <section>
-                <h4>Drawn</h4>
-                <ol>
-                    {drawn.map((e) => (
-                        <li key={e.id}>{e.display_name}</li>
-                    ))}
-                </ol>
-            </section>
-        </div>
+                {drawn.length === 0 && (
+                    <p className="muted">No winners yet</p>
+                )}
+
+                {drawn.length > 0 && (
+                    <ol>
+                        {drawn.map((d) => (
+                            <li key={d.entry_id}>{d.entry_name}</li>
+                        ))}
+                    </ol>
+                )}
+
+                {/* ✅ FIX: always go back to Prize Giving page */}
+                <Link
+                    to={
+                        organisationId
+                            ? `/clubadmin/${organisationId}/prize-giving`
+                            : "/clubadmin"
+                    }
+                    className="btn btn-secondary back-btn"
+                >
+                    ← Back to prizes
+                </Link>
+            </div>
+        </section>
     );
 }

@@ -1680,3 +1680,184 @@ button[aria-busy="true"] {
     margin-top: 2rem;
     font-size: 1.2rem;
 }
+/* ============================================================================
+   Live Draw – Stage Layout
+============================================================================ */
+
+.live-draw-page {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.live-draw-loading {
+    text-align: center;
+    padding: 48px;
+}
+
+/* ============================================================================
+   STAGE CARD
+============================================================================ */
+
+.live-draw-stage {
+    text-align: center;
+    padding: 40px 32px;
+}
+
+.stage-header h1 {
+    font-size: 32px;
+    margin-bottom: 4px;
+}
+
+.stage-header p {
+    color: #6b7280;
+    margin-bottom: 28px;
+}
+
+/* ============================================================================
+   WINNER STAGE
+============================================================================ */
+
+.winner-stage {
+    position: relative;
+    margin: 0 auto 32px;
+    padding: 48px 24px;
+    min-height: 160px;
+    border-radius: 22px;
+    background: linear-gradient(135deg, #0ea5e9, #2563eb);
+    color: white;
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.winner-name {
+    font-size: 42px;
+    font-weight: 900;
+    letter-spacing: 0.5px;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+    .winner-name.hidden {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    .winner-name.show {
+        opacity: 1;
+        transform: translateY(0);
+    }
+
+/* =====================================================================
+   FISHING LINE + HOOK (STAGE VISIBLE)
+===================================================================== */
+
+.fishing-line {
+    position: absolute;
+    top: -260px; /* start WELL above the card */
+    left: 50%;
+    width: 3px;
+    height: 0;
+    background: rgba(255, 255, 255, 0.95);
+    transform: translateX(-50%);
+    opacity: 0;
+    z-index: 5;
+}
+
+    .fishing-line.drop {
+        animation: line-drop 1.2s cubic-bezier(.22,1,.36,1) forwards;
+    }
+
+.hook {
+    position: absolute;
+    bottom: -22px;
+    left: 50%;
+    width: 28px;
+    height: 28px;
+    border: 4px solid #ffffff;
+    border-top: none;
+    border-radius: 0 0 20px 20px;
+    transform: translateX(-50%) rotate(12deg);
+    box-shadow: 0 6px 14px rgba(0,0,0,0.35);
+    background: transparent;
+}
+
+/* Drop animation */
+@keyframes line-drop {
+    0% {
+        opacity: 0;
+        height: 0;
+    }
+
+    15% {
+        opacity: 1;
+    }
+
+    100% {
+        height: 320px; /* 👈 BIG, VERY VISIBLE */
+    }
+}
+
+
+/* ============================================================================
+   HISTORY CARD
+============================================================================ */
+
+.live-draw-history {
+    max-width: 420px;
+    margin: 0 auto;
+    padding: 24px;
+}
+
+    .live-draw-history h3 {
+        margin-bottom: 12px;
+    }
+
+    .live-draw-history ol {
+        padding-left: 20px;
+        margin-bottom: 16px;
+        max-height: 220px;
+        overflow-y: auto;
+    }
+
+    .live-draw-history li {
+        margin-bottom: 6px;
+        font-size: 14px;
+    }
+
+.back-btn {
+    display: inline-block;
+    margin-top: 8px;
+}
+.prize-stack-card {
+    margin-top: 16px;
+    padding: 16px;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+    background: #fff;
+}
+
+.prize-card {
+    padding: 14px 16px;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    margin-bottom: 12px;
+    background: #fafafa;
+}
+
+.prize-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 8px;
+}
+
+.prize-card--spot {
+    background: linear-gradient(180deg, #ffffff, #f8fafc);
+}
+
