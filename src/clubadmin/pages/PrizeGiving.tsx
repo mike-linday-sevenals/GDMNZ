@@ -6,9 +6,13 @@
 //  - Containers derived ONLY from prize configuration
 //  - Competition-scoped prizes flow into final day
 //  - Ordinal prize definitions (1st / 2nd / 3rd) are grouped into ONE card
+//  - ✅ Live reveal: ALWAYS renders 3/2/1 slots for grouped prizes (placeholders until revealed)
+//  - ✅ Correct place filling: if only 2 results exist for a 3-place prize, they fill 2nd + 1st (NOT 3rd + 2nd)
+//  - ✅ Blank places (no result exists for that place) show:
+//      "No Result — Draw a Spot Prize: <random_list.name>" and link to that draw
 // ============================================================================
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 
 import { listCompetitions } from "@/clubadmin/api/competitions";
@@ -17,9 +21,7 @@ import {
     type PrizeDefinitionRow,
 } from "@/clubadmin/api/competitionPrizes";
 
-import {
-    getRandomListForPrize,
-} from "@/clubadmin/api/randomLists";
+import { getRandomListForPrize } from "@/clubadmin/api/randomLists";
 
 import {
     previewPrizeEngine,
@@ -35,6 +37,7 @@ import "./PrizeGivingPrint.css";
 type NormalisedRandomList = {
     id: string | null;
     randomised_at: string | null;
+    name: string | null; // ✅ random_list.name
 };
 
 type SpotPrizeDisplay = {
@@ -71,6 +74,16 @@ function formatDateTimeNZ(value: string) {
     });
 }
 
+function ordinalSuffix(n: number) {
+    const mod100 = n % 100;
+    if (mod100 >= 11 && mod100 <= 13) return "th";
+    const mod10 = n % 10;
+    if (mod10 === 1) return "st";
+    if (mod10 === 2) return "nd";
+    if (mod10 === 3) return "rd";
+    return "th";
+}
+
 function groupDeterministicPrizes(
     prizes: PrizeDefinitionRow[]
 ): {
@@ -101,6 +114,26 @@ function groupDeterministicPrizes(
     });
 }
 
+function buildStageLine(r: PrizeEnginePreviewRow): string {
+    const species = r.species_name ?? "";
+    const who = r.competitor_name ?? "";
+
+    const metric =
+        r.weight_kg != null
+            ? `${Number(r.weight_kg).toFixed(2)} kg`
+            : r.length_cm != null
+                ? `${r.length_cm} cm`
+                : "";
+
+    // If your engine row includes angler_number, show it. If not, it will just omit it.
+    const anglerNo =
+        // @ts-expect-error - optional if present in your row type
+        r.angler_number != null ? `#${String(r.angler_number)} ` : "";
+
+    const parts = [species, metric, `${anglerNo}${who}`].filter(Boolean);
+    return parts.join(" — ");
+}
+
 // ============================================================================
 // Component
 // ============================================================================
@@ -122,6 +155,70 @@ export default function PrizeGiving() {
     const [engineRowsByPrize, setEngineRowsByPrize] = useState<
         Record<string, PrizeEnginePreviewRow[]>
     >({});
+
+    // Reveal progress per grouped key (number of revealed RESULTS, not slots)
+    const [revealedByGroupKey, setRevealedByGroupKey] = useState<
+        Record<string, number>
+    >({});
+
+    function revealNext(key: string, maxReveal: number) {
+        setRevealedByGroupKey((prev) => {
+            const current = prev[key] ?? 0;
+            return { ...prev, [key]: Math.min(maxReveal, current + 1) };
+        });
+    }
+
+    function resetReveal(key: string) {
+        setRevealedByGroupKey((prev) => {
+            const next = { ...prev };
+            delete next[key];
+            return next;
+        });
+    }
+
+    function revealAll(key: string, maxReveal: number) {
+        setRevealedByGroupKey((prev) => ({ ...prev, [key]: maxReveal }));
+    }
+
+    function prizeAppliesToContainer(
+        prize: PrizeDefinitionRow,
+        container: PrizeResultContainer
+    ): boolean {
+        if (container.scope_type === "briefing") {
+            return prize.scope_kind === "briefing";
+        }
+
+        if (container.scope_type === "day") {
+            if (prize.scope_kind === "day") {
+                return prize.competition_day_id === container.scope_day_id;
+            }
+
+            if (prize.scope_kind === "competition") {
+                return container.isFinal;
+            }
+        }
+
+        return false;
+    }
+
+    // ✅ Pick the “best” Spot Prize to link for the current container
+    // We prefer an applicable, active spot prize that already has a randomised list.
+    const fallbackSpotDraw = useMemo(() => {
+        if (!organisationId || !activeContainer) return null;
+
+        const eligible = spotPrizes
+            .filter(({ prize }) => prize.active && prize.prize_type === "spot")
+            .filter(({ prize }) => prizeAppliesToContainer(prize, activeContainer))
+            .filter(({ randomList }) => !!randomList.id && !!randomList.randomised_at);
+
+        const first = eligible[0];
+        if (!first?.randomList?.id) return null;
+
+        return {
+            url: `/clubadmin/${organisationId}/admin/random-lists/${first.randomList.id}/draw`,
+            name: first.randomList.name ?? "Spot Prize",
+        };
+    }, [organisationId, activeContainer, spotPrizes]);
 
     // =====================================================================
     // Load competitions
@@ -161,16 +258,21 @@ export default function PrizeGiving() {
                     prizeId: prize.id,
                 });
 
+                // raw is whatever getRandomListForPrize returns. We safely pick known fields.
                 resolved.push({
                     prize,
                     randomList: raw
                         ? {
-                            id: raw.id,
+                            id: raw.id ?? null,
                             randomised_at: raw.randomised_at ?? null,
+                            // ✅ name from random_list.name
+                            // @ts-expect-error - depends on getRandomListForPrize return shape
+                            name: raw.name ?? null,
                         }
                         : {
                             id: null,
                             randomised_at: null,
+                            name: null,
                         },
                 });
             }
@@ -180,6 +282,11 @@ export default function PrizeGiving() {
 
         loadPrizes();
     }, [competitionId]);
+
+    // Reset reveal state when changing comp/tab
+    useEffect(() => {
+        setRevealedByGroupKey({});
+    }, [competitionId, activeContainer?.id]);
 
     // =====================================================================
     // Build result containers (PRIZE CONFIG DRIVEN)
@@ -192,17 +299,9 @@ export default function PrizeGiving() {
             return;
         }
 
-        const briefingExists = prizeDefs.some(
-            (p) => p.scope_kind === "briefing"
-        );
-
-        const dayDefs = prizeDefs.filter(
-            (p) => p.scope_kind === "day"
-        );
-
-        const competitionDefs = prizeDefs.filter(
-            (p) => p.scope_kind === "competition"
-        );
+        const briefingExists = prizeDefs.some((p) => p.scope_kind === "briefing");
+        const dayDefs = prizeDefs.filter((p) => p.scope_kind === "day");
+        const competitionDefs = prizeDefs.filter((p) => p.scope_kind === "competition");
 
         const uniqueDayIds = Array.from(
             new Set(dayDefs.map((p) => p.competition_day_id).filter(Boolean))
@@ -246,10 +345,6 @@ export default function PrizeGiving() {
 
         setResultContainers(containers);
 
-        // ✅ NEW BEHAVIOUR:
-        // - keep current active container if it still exists
-        // - else default to final container
-        // - else default to first
         setActiveContainer((prev) => {
             if (!containers.length) return null;
 
@@ -290,18 +385,12 @@ export default function PrizeGiving() {
                         continue;
                     }
 
-                    if (
-                        prize.scope_kind === "competition" &&
-                        !container.isFinal
-                    ) {
+                    if (prize.scope_kind === "competition" && !container.isFinal) {
                         continue;
                     }
                 }
 
-                rows[prize.id] = await previewPrizeEngine(
-                    competitionId,
-                    prize.id
-                );
+                rows[prize.id] = await previewPrizeEngine(competitionId, prize.id);
             }
 
             setEngineRowsByPrize(rows);
@@ -309,27 +398,6 @@ export default function PrizeGiving() {
 
         loadEngine();
     }, [competitionId, activeContainer, prizeDefs]);
-
-    function prizeAppliesToContainer(
-        prize: PrizeDefinitionRow,
-        container: PrizeResultContainer
-    ): boolean {
-        if (container.scope_type === "briefing") {
-            return prize.scope_kind === "briefing";
-        }
-
-        if (container.scope_type === "day") {
-            if (prize.scope_kind === "day") {
-                return prize.competition_day_id === container.scope_day_id;
-            }
-
-            if (prize.scope_kind === "competition") {
-                return container.isFinal;
-            }
-        }
-
-        return false;
-    }
 
     // =====================================================================
     // Render
@@ -418,16 +486,14 @@ export default function PrizeGiving() {
                                             🎉 Start live draw
                                         </Link>
                                     ) : (
-                                        <div className="muted">
-                                            ⏳ Not randomised
-                                        </div>
+                                        <div className="muted">⏳ Not randomised</div>
                                     )}
                                 </div>
                             ))}
 
                         {/* ===============================
-                           🏆 DETERMINISTIC PRIZES (GROUPED)
-                           =============================== */}
+   🏆 DETERMINISTIC PRIZES (GROUPED + STAGE REVEAL)
+   =============================== */}
                         {groupDeterministicPrizes(
                             prizeDefs.filter(
                                 (p) =>
@@ -439,72 +505,169 @@ export default function PrizeGiving() {
                         ).map(({ key, prize, awardedCount }) => {
                             const rows = engineRowsByPrize[prize.id] ?? [];
 
-                            const awardedRows = rows.slice(0, awardedCount);
-                            const displayRows = [...awardedRows].reverse();
+                            // How many results actually exist right now for this prize
+                            const availableCount = Math.min(awardedCount, rows.length);
+
+                            // Best-first winners (index 0 => 1st, 1 => 2nd, 2 => 3rd)
+                            const bestFirst = rows.slice(0, availableCount);
+
+                            // Reveal progress is based on availableCount (not awardedCount)
+                            const revealed = revealedByGroupKey[key] ?? 0;
+                            const maxReveal = availableCount;
+
+                            const nextPlace = maxReveal - revealed;
+                            const nextLabel = revealed >= maxReveal ? "All revealed" : `Reveal #${nextPlace}`;
+
+                            const activePlace = revealed > 0 ? maxReveal - (revealed - 1) : null;
 
                             return (
-                                <details
-                                    key={key}
-                                    className="prize-card"
-                                    style={{ marginTop: 12 }}
-                                >
-                                    <summary
+                                <div key={key} className="prize-card" style={{ marginTop: 12 }}>
+                                    <div
                                         style={{
                                             padding: "12px 16px",
-                                            cursor: "pointer",
                                             fontWeight: 700,
                                             background: "#f8fafc",
                                             borderRadius: 8,
+                                            display: "flex",
+                                            alignItems: "center",
+                                            justifyContent: "space-between",
+                                            gap: 12,
                                         }}
                                     >
-                                        {key}
-                                        <div className="muted">
-                                            Rule: {prize.award_rule}
+                                        <div>
+                                            {key}
+                                            <div className="muted">Rule: {prize.award_rule}</div>
                                         </div>
-                                    </summary>
 
-                                    {displayRows.map((r, idx) => {
-                                        const place = awardedCount - idx;
-
-                                        return (
-                                            <div
-                                                key={r.catch_submission_id}
-                                                style={{
-                                                    padding: "12px 16px",
-                                                    borderTop:
-                                                        "1px solid #e5e7eb",
-                                                }}
+                                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                            <button
+                                                className="btn btn-primary"
+                                                disabled={revealed >= maxReveal || maxReveal === 0}
+                                                onClick={() => revealNext(key, maxReveal)}
                                             >
-                                                <strong>
-                                                    #{place} —{" "}
-                                                    {r.competitor_name}
-                                                </strong>
+                                                {maxReveal === 0 ? "No results" : nextLabel}
+                                            </button>
 
-                                                <div className="muted">
-                                                    {r.species_name} ·{" "}
-                                                    {r.outcome}
-                                                </div>
+                                            <button
+                                                className="btn btn-secondary"
+                                                disabled={revealed === 0}
+                                                onClick={() => resetReveal(key)}
+                                            >
+                                                Reset
+                                            </button>
 
-                                                <div>
-                                                    {r.weight_kg != null &&
-                                                        `${r.weight_kg.toFixed(
-                                                            2
-                                                        )} kg`}
-                                                    {r.length_cm != null &&
-                                                        ` · ${r.length_cm} cm`}
-                                                </div>
+                                            <button
+                                                className="btn btn-secondary"
+                                                disabled={revealed >= maxReveal || maxReveal === 0}
+                                                onClick={() => revealAll(key, maxReveal)}
+                                            >
+                                                Reveal all
+                                            </button>
+                                        </div>
+                                    </div>
 
-                                                <div className="muted">
-                                                    {formatDateTimeNZ(
-                                                        r.priority_timestamp
-                                                    )}
+                                    {/* ALWAYS render slots: 3/2/1 if awardedCount=3 (or 1 slot if awardedCount=1) */}
+                                    <div className="prize-reveal-stack">
+                                        {Array.from({ length: awardedCount }).map((_, idx) => {
+                                            const place = awardedCount - idx;
+
+                                            // Only places <= availableCount have an actual result
+                                            const hasResultForPlace = place <= availableCount;
+
+                                            const rowForPlace = hasResultForPlace ? bestFirst[place - 1] : undefined;
+
+                                            // Reveal progresses from "lowest available place" up to 1st.
+                                            const revealStepForPlace = hasResultForPlace ? availableCount - place + 1 : null;
+
+                                            const isRevealed =
+                                                hasResultForPlace && revealStepForPlace != null && revealed >= revealStepForPlace;
+
+                                            const isActive = isRevealed && activePlace != null && place === activePlace;
+
+                                            // ✅ BLANK PLACE (no result): show ONE clean link label (no duplicate name)
+                                            if (!hasResultForPlace) {
+                                                const spotNameRaw = fallbackSpotDraw?.name ?? null;
+                                                const spotName =
+                                                    spotNameRaw &&
+                                                        spotNameRaw.trim() &&
+                                                        spotNameRaw.trim().toLowerCase() !== "spot prize"
+                                                        ? spotNameRaw.trim()
+                                                        : null;
+
+                                                const linkLabel = spotName ? `Draw Spot Prize: ${spotName}` : "Draw a Spot Prize";
+
+                                                return (
+                                                    <div key={`${key}-place-${place}`} className="prize-reveal-row">
+                                                        <div className="prize-reveal-line1">
+                                                            {place}
+                                                            {ordinalSuffix(place)} — No Result
+                                                        </div>
+
+                                                        <div className="prize-reveal-winner">
+                                                            {fallbackSpotDraw?.url ? (
+                                                                <Link to={fallbackSpotDraw.url} className="prize-reveal-link">
+                                                                    {linkLabel}
+                                                                </Link>
+                                                            ) : (
+                                                                <span className="prize-reveal-link prize-reveal-link--disabled">
+                                                                    {linkLabel}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }
+
+                                            // Normal reveal behaviour for places that DO have a result
+                                            // We want the winner name ALWAYS on line 2.
+                                            // So we render line1 + winner separately.
+
+                                            const stage = rowForPlace ? buildStageLine(rowForPlace) : "…";
+
+                                            // If your buildStageLine returns something like:
+                                            // "Black Marlin — 34.00 kg — Kelly Lindsay"
+                                            // split on the LAST "—" so the winner is always the final segment.
+                                            const splitStageLine = (s: string) => {
+                                                const i = s.lastIndexOf("—");
+                                                if (i === -1) return { left: s.trim(), winner: "" };
+                                                return {
+                                                    left: s.slice(0, i).trim(),
+                                                    winner: s.slice(i + 1).trim(),
+                                                };
+                                            };
+
+                                            const { left, winner } = splitStageLine(stage);
+
+                                            const line1 = isRevealed
+                                                ? `${place}${ordinalSuffix(place)} — ${left}`
+                                                : `${place}${ordinalSuffix(place)} — …`;
+
+                                            const winnerLine = isRevealed ? winner : "";
+
+                                            return (
+                                                <div
+                                                    key={`${key}-place-${place}`}
+                                                    className={
+                                                        isActive ? "prize-reveal-row prize-reveal-row--active" : "prize-reveal-row"
+                                                    }
+                                                >
+                                                    <div className="prize-reveal-line1">{line1}</div>
+                                                    <div className="prize-reveal-winner">{winnerLine}</div>
                                                 </div>
-                                            </div>
-                                        );
-                                    })}
-                                </details>
+                                            );
+                                        })}
+                                    </div>
+
+                                    {/* Optional hint if nothing qualifies yet */}
+                                    {availableCount === 0 && (
+                                        <div style={{ padding: "0 16px 16px 16px" }} className="muted">
+                                            No qualifying results yet.
+                                        </div>
+                                    )}
+                                </div>
                             );
                         })}
+
                     </div>
                 </section>
             )}
