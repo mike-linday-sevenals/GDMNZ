@@ -1861,3 +1861,76 @@ button[aria-busy="true"] {
     background: linear-gradient(180deg, #ffffff, #f8fafc);
 }
 
+.prize-reveal-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 18px 16px 20px 16px;
+}
+
+.prize-reveal-row {
+    font-size: 44px; /* BIG screen */
+    line-height: 1.15;
+    font-weight: 800;
+    padding: 18px 18px;
+    border-radius: 10px;
+    border: 1px solid #e5e7eb;
+    background: #ffffff;
+}
+
+.prize-reveal-row--active {
+    background: #a7f3d0; /* your green highlight vibe */
+    border-color: #34d399;
+}
+
+.prize-reveal-empty {
+    padding: 18px 18px;
+    font-size: 32px;
+    font-weight: 700;
+    opacity: 0.7;
+}
+.prize-reveal-link {
+    font-weight: 900;
+    text-decoration: underline;
+}
+
+.prize-reveal-link--disabled {
+    opacity: 0.6;
+    text-decoration: none;
+}
+.prize-reveal-link {
+    font-weight: 900;
+    text-decoration: underline;
+}
+
+.prize-reveal-link--disabled {
+    opacity: 0.6;
+    text-decoration: none;
+}
+
+.prize-reveal-spotname {
+    font-weight: 800;
+    opacity: 0.85;
+}
+
+
+.prize-reveal-row {
+    white-space: normal; /* allow wrapping */
+    overflow: hidden; /* keep inside green */
+}
+
+.prize-reveal-line1 {
+    display: block;
+    font-size: 44px;
+    line-height: 1.1;
+    font-weight: 900;
+}
+
+.prize-reveal-winner {
+    display: block; /* ✅ forces second line */
+    margin-top: 10px;
+    font-size: 44px;
+    line-height: 1.1;
+    font-weight: 900;
+    overflow-wrap: anywhere; /* long names won't spill */
+}
