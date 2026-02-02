@@ -1,15 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import ConfirmModal from "@/components/ConfirmModal";
-
 
 import {
     registerCompetitorsForBoat,
     listCompetitorsForCompetition,
     updateCompetitor,
-    competitorHasResults,
-    deleteCompetitorFromCompetition,
     RegistrationCategory,
+    moveCompetitorToBoat,
 } from "@/clubadmin/api/registration";
 
 import {
@@ -26,7 +23,6 @@ import {
     clearTeamCaptainForBoat,
     type TeamCaptain,
 } from "@/clubadmin/api/teamCaptain";
-
 
 import { computeFee, todayISO } from "@/utils";
 
@@ -68,6 +64,17 @@ type Competitor = {
    // is_early_bird: boolean;
 };
 
+type EditDraft = {
+    full_name: string;
+    category: DomainCategory;
+    membership_no: string;
+    registration_date: string;
+    paid_on: string | null;
+    boat_number: string | null;
+    boat: string | null;
+    boat_type: BoatType | null;
+};
+
 function normalizeCompetitorPatch(
     patch: Partial<Competitor>
 ): Partial<{
@@ -97,8 +104,6 @@ function normalizeCompetitorPatch(
     return out;
 }
 
-
-
 function resolveDivisionId(
     divisions: { id: string; name: string }[],
     category: DomainCategory
@@ -119,8 +124,6 @@ function resolveDivisionId(
     );
 }
 
-
-
 /* =========================================================
    Helpers
 ========================================================= */
@@ -128,9 +131,27 @@ function resolveDivisionId(
 const toDomainCategory = (c: DisplayCategory): DomainCategory =>
     c === "Adult" ? "adult" : "junior";
 
+const formatDateISOForInput = (iso: string | null | undefined): string => {
+    if (!iso) return "";
 
+    if (iso.length >= 10) return iso.slice(0, 10);
 
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+};
 
+const formatDateNZForDisplay = (iso: string | null | undefined): string => {
+    if (!iso) return "";
+
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) {
+        return iso.length >= 10 ? iso.slice(0, 10) : iso;
+    }
+
+    return d.toLocaleDateString("en-NZ", {
+        timeZone: "Pacific/Auckland",
+    });
+};
 
 /* =========================================================
    Component
@@ -143,11 +164,7 @@ export default function Register() {
 
     const [boatTypeError, setBoatTypeError] = useState(false);
 
-    const [anglerDrafts, setAnglerDrafts] = useState<Record<string, Partial<Competitor>>>({});
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-
-
-
 
     const [divisions, setDivisions] = useState<
         { id: string; name: string }[]
@@ -155,7 +172,7 @@ export default function Register() {
 
     const emptyBoat: BoatDraft = {
         boat_name: "",
-        boat_type: null, 
+        boat_type: null,
         anglers: [
             {
                 full_name: "",
@@ -179,11 +196,31 @@ export default function Register() {
         type: BoatType | null;
     } | null>(null);
 
-    const [deleteTarget, setDeleteTarget] = useState<Competitor | null>(null);
-    const [deleteBlocked, setDeleteBlocked] = useState(false);
+    const [showFinder, setShowFinder] = useState(false);
+    const [finderSearch, setFinderSearch] = useState("");
+    const [draftBoatNumber, setDraftBoatNumber] = useState<string | null>(null);
+    const [draftCompetitorId, setDraftCompetitorId] = useState<string | null>(null);
+    const [highlightCompetitorId, setHighlightCompetitorId] = useState<string | null>(null);
 
-    const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [editTarget, setEditTarget] = useState<Competitor | null>(null);
+    const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
+    const [moveBoatEnabled, setMoveBoatEnabled] = useState(false);
+    const [moveSearch, setMoveSearch] = useState("");
+    const [moveTargetBoatNumber, setMoveTargetBoatNumber] = useState<string | null>(null);
+    const [createNewBoatEnabled, setCreateNewBoatEnabled] = useState(false);
+    const [newBoatName, setNewBoatName] = useState("");
+    const [newBoatType, setNewBoatType] = useState<BoatType | null>(null);
+    const [savingEdit, setSavingEdit] = useState(false);
 
+    const boatRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+    useEffect(() => {
+        if (!highlightCompetitorId) return;
+
+        const timer = setTimeout(() => setHighlightCompetitorId(null), 2500);
+        return () => clearTimeout(timer);
+    }, [highlightCompetitorId]);
 
     /* ----------------------------- Load competitions ----------------------------- */
 
@@ -269,9 +306,8 @@ export default function Register() {
         [competitions, competitionId]
     );
 
-
     /* ----------------------------- Register ----------------------------- */
-    async function registerBoat(){
+    async function registerBoat() {
         if (!boat.boat_type) {
             setBoatTypeError(true);
             return;
@@ -327,16 +363,9 @@ export default function Register() {
             }
         }
 
-
         setRows(await listCompetitorsForCompetition(competitionId));
         setBoat(emptyBoat);
     }
-
-
-
-
-
-
 
     /* ----------------------------- Group by boat_number ----------------------------- */
 
@@ -368,28 +397,372 @@ export default function Register() {
         );
 
         setRows(await listCompetitorsForCompetition(competitionId));
-        setBoat(emptyBoat);
-        setPendingCaptainIndex(null);
+        setHasUnsavedChanges(false);
     }
-    async function handleConfirmDelete() {
-        if (!deleteTarget || !competitionId) return;
 
-        await deleteCompetitorFromCompetition(
+    const buildBoatLabel = (boatNumber: string, boatAnglers: Competitor[]) => {
+        const boatName =
+            boatAnglers[0]?.boat?.trim() || "Unnamed Boat";
+
+        return boatNumber === "NO_BOAT"
+            ? boatName
+            : `${boatNumber} — ${boatName}`;
+    };
+
+    const seedBoatDraftState = (boatNumber: string, boatAnglers: Competitor[]) => {
+        setBoatDraft({
+            boat_number: boatNumber,
+            name: boatAnglers[0]?.boat ?? "",
+            type: boatAnglers[0]?.boat_type ?? null,
+        });
+    };
+
+    const loadCaptainForBoat = async (boatNumber: string) => {
+        if (!competitionId) return;
+
+        const captain = await getTeamCaptainForBoat(
             competitionId,
-            String(deleteTarget.id)
+            boatNumber
         );
 
-        setRows(await listCompetitorsForCompetition(competitionId));
+        setTeamCaptain(captain);
 
-        // ✅ REQUIRED cleanup
-        setOpenBoat(null);
-        setBoatDraft(null);
-        setDeleteTarget(null);
-    }
+        if (captain?.competitor_id) {
+            setEditCaptainMode("angler");
+            setExternalCaptainName("");
+        } else if (captain?.display_name) {
+            setEditCaptainMode("external");
+            setExternalCaptainName(captain.display_name);
+        } else {
+            setEditCaptainMode(null);
+            setExternalCaptainName("");
+        }
+    };
 
+    const scrollToBoat = (boatNumber: string) => {
+        const el =
+            boatRefs.current[boatNumber] ??
+            document.getElementById(`boat-${boatNumber}`);
 
+        if (el) {
+            el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+    };
 
+    const openBoatForEditing = async (
+        boatNumber: string,
+        boatAnglers: Competitor[]
+    ) => {
+        await loadCaptainForBoat(boatNumber);
+        setOpenBoat(boatNumber);
+        seedBoatDraftState(boatNumber, boatAnglers);
+        setHasUnsavedChanges(false);
 
+        setTimeout(() => scrollToBoat(boatNumber), 10);
+    };
+
+    const handleBoatToggle = async (
+        boatNumber: string,
+        boatAnglers: Competitor[],
+        isOpen: boolean
+    ) => {
+        if (isOpen && hasUnsavedChanges) {
+            if (!confirm("Discard unsaved changes?")) return;
+        }
+
+        if (isOpen) {
+            setOpenBoat(null);
+            return;
+        }
+
+        await openBoatForEditing(boatNumber, boatAnglers);
+    };
+
+    const resetFinderState = () => {
+        setShowFinder(false);
+        setFinderSearch("");
+        setDraftBoatNumber(null);
+        setDraftCompetitorId(null);
+    };
+
+    const matcher = (value: string | null | undefined, q: string) =>
+        (value ?? "").toLowerCase().includes(q);
+
+    const normalisedQuery = finderSearch.trim().toLowerCase();
+
+    const boatMatches = useMemo(() => {
+        return boats
+            .map(([boatNumber, boatAnglers]) => {
+                const label = buildBoatLabel(boatNumber, boatAnglers);
+                const q = normalisedQuery;
+
+                const boatNumberMatch =
+                    boatNumber.toLowerCase().includes(q) ||
+                    (boatNumber === "NO_BOAT" && q.includes("no boat"));
+
+                const boatLabelMatch = matcher(label, q);
+
+                const competitorMatch = boatAnglers.some(a =>
+                    matcher(a.full_name, q) ||
+                    matcher(a.angler_number, q)
+                );
+
+                const includeNoBoat =
+                    boatNumber !== "NO_BOAT" ||
+                    q === "" ||
+                    q.includes("no boat");
+
+                const matches =
+                    (q === "" && includeNoBoat) ||
+                    (includeNoBoat &&
+                        (boatNumberMatch ||
+                            boatLabelMatch ||
+                            competitorMatch));
+
+                return matches
+                    ? { boatNumber, boatAnglers, label }
+                    : null;
+            })
+            .filter(Boolean) as {
+                boatNumber: string;
+                boatAnglers: Competitor[];
+                label: string;
+            }[];
+    }, [boats, normalisedQuery]);
+
+    const anglerMatches = useMemo(() => {
+        const q = normalisedQuery;
+
+        const allAnglers = boats.flatMap(([boatNumber, boatAnglers]) => {
+            const label = buildBoatLabel(boatNumber, boatAnglers);
+            return boatAnglers.map(a => ({
+                ...a,
+                boatNumber,
+                boatLabel: label,
+            }));
+        });
+
+        const filteredByQuery = allAnglers.filter(a => {
+            if (q === "") return true;
+
+            return (
+                matcher(a.full_name, q) ||
+                matcher(a.angler_number, q) ||
+                matcher(a.boatLabel, q) ||
+                matcher(a.boatNumber, q)
+            );
+        });
+
+        if (!draftBoatNumber) return filteredByQuery;
+
+        return filteredByQuery.filter(a => a.boatNumber === draftBoatNumber);
+    }, [boats, draftBoatNumber, normalisedQuery]);
+
+    const handleFinderSelect = async () => {
+        const targetBoatNumber =
+            draftCompetitorId
+                ? (() => {
+                    for (const [boatNumber, boatAnglers] of boats) {
+                        if (boatAnglers.some(a => String(a.id) === draftCompetitorId)) {
+                            return boatNumber;
+                        }
+                    }
+                    return null;
+                })()
+                : draftBoatNumber;
+
+        if (!targetBoatNumber) return;
+
+        const [, boatAnglers = []] =
+            boats.find(([bn]) => bn === targetBoatNumber) ?? [];
+
+        if (
+            openBoat &&
+            openBoat !== targetBoatNumber &&
+            hasUnsavedChanges
+        ) {
+            if (!confirm("Discard unsaved changes?")) return;
+        }
+
+        await openBoatForEditing(targetBoatNumber, boatAnglers);
+
+        if (draftCompetitorId) {
+            setHighlightCompetitorId(draftCompetitorId);
+        }
+
+        resetFinderState();
+    };
+
+    const moveBoatMatches = useMemo(() => {
+        const q = moveSearch.trim().toLowerCase();
+
+        return boats
+            .filter(([boatNumber]) => boatNumber !== "NO_BOAT")
+            .map(([boatNumber, boatAnglers]) => {
+                const label = buildBoatLabel(boatNumber, boatAnglers);
+                const matches =
+                    q === "" ||
+                    boatNumber.toLowerCase().includes(q) ||
+                    matcher(label, q);
+                return matches
+                    ? {
+                        boatNumber,
+                        label,
+                        boatAnglers,
+                    }
+                    : null;
+            })
+            .filter(Boolean) as {
+                boatNumber: string;
+                label: string;
+                boatAnglers: Competitor[];
+            }[];
+    }, [boats, moveSearch]);
+
+    const startEditModal = (competitor: Competitor) => {
+        setEditTarget(competitor);
+        setEditDraft({
+            full_name: competitor.full_name ?? "",
+            category: competitor.category,
+            membership_no: competitor.membership_no ?? "",
+            registration_date:
+                formatDateISOForInput(competitor.registration_date) || todayISO(),
+            paid_on: competitor.paid_on,
+            boat_number: competitor.boat_number,
+            boat: competitor.boat,
+            boat_type: competitor.boat_type,
+        });
+        setMoveBoatEnabled(false);
+        setMoveSearch("");
+        setMoveTargetBoatNumber(null);
+        setCreateNewBoatEnabled(false);
+        setNewBoatName("");
+        setNewBoatType(null);
+        setIsEditModalOpen(true);
+    };
+
+    const resetEditModal = () => {
+        setIsEditModalOpen(false);
+        setEditTarget(null);
+        setEditDraft(null);
+        setMoveBoatEnabled(false);
+        setMoveTargetBoatNumber(null);
+        setCreateNewBoatEnabled(false);
+        setNewBoatName("");
+        setNewBoatType(null);
+        setSavingEdit(false);
+    };
+
+    const hasModalUnsavedChanges = (): boolean => {
+        if (!editTarget || !editDraft) return false;
+
+        const baseChanged =
+            editDraft.full_name.trim() !== (editTarget.full_name ?? "").trim() ||
+            editDraft.category !== editTarget.category ||
+            (editDraft.membership_no ?? "") !== (editTarget.membership_no ?? "") ||
+            formatDateISOForInput(editDraft.registration_date) !==
+            formatDateISOForInput(editTarget.registration_date) ||
+            (!!editDraft.paid_on) !== (!!editTarget.paid_on);
+
+        const moveChanged =
+            moveBoatEnabled ||
+            createNewBoatEnabled;
+
+        return baseChanged || moveChanged;
+    };
+
+    const generateNextBoatNumber = (allCompetitors: Competitor[]): string => {
+        const maxSeq = Math.max(
+            0,
+            ...allCompetitors
+                .map(c => c.boat_number)
+                .filter((b): b is string => !!b && b !== "NO_BOAT")
+                .map(b => {
+                    const m = b.match(/^B(\d+)/);
+                    return m ? Number(m[1]) : 0;
+                })
+        );
+
+        return `B${String(maxSeq + 1).padStart(5, "0")}`;
+    };
+
+    const handleSaveEdit = async () => {
+        if (!competitionId || !editTarget || !editDraft) return;
+
+        if (moveBoatEnabled && createNewBoatEnabled && !newBoatName.trim()) {
+            alert("Please provide a boat name for the new boat.");
+            return;
+        }
+
+        if (moveBoatEnabled && !createNewBoatEnabled && !moveTargetBoatNumber) {
+            alert("Select a boat to move the angler to, or choose Create new boat.");
+            return;
+        }
+
+        setSavingEdit(true);
+
+        try {
+            const basePatch = normalizeCompetitorPatch({
+                full_name: editDraft.full_name.trim(),
+                category: editDraft.category,
+                membership_no: editDraft.membership_no,
+                registration_date: editDraft.registration_date,
+                paid_on: editDraft.paid_on,
+            });
+
+            await updateCompetitor(editTarget.id, basePatch);
+
+            let destinationBoatNumber = editDraft.boat_number ?? "NO_BOAT";
+            let destinationBoatName = editDraft.boat ?? "";
+            let destinationBoatType: BoatType | null | undefined = editDraft.boat_type;
+
+            if (moveBoatEnabled) {
+                if (createNewBoatEnabled) {
+                    destinationBoatNumber = generateNextBoatNumber(rows);
+                    destinationBoatName = newBoatName.trim();
+                    destinationBoatType = newBoatType ?? null;
+                } else if (moveTargetBoatNumber) {
+                    const targetEntry = boats.find(
+                        ([boatNumber]) => boatNumber === moveTargetBoatNumber
+                    );
+                    destinationBoatNumber = moveTargetBoatNumber;
+                    destinationBoatName =
+                        targetEntry?.[1]?.[0]?.boat ?? destinationBoatName;
+                    destinationBoatType =
+                        targetEntry?.[1]?.[0]?.boat_type ?? destinationBoatType;
+                }
+
+                if (destinationBoatNumber) {
+                    await moveCompetitorToBoat(editTarget.id, {
+                        boat_number: destinationBoatNumber,
+                        boat: destinationBoatName,
+                        boat_type: destinationBoatType ?? null,
+                    });
+                }
+            }
+
+            const updatedRows = await listCompetitorsForCompetition(competitionId);
+            setRows(updatedRows);
+
+            // keep boat expanded + highlight
+            const targetBoatNumber =
+                moveBoatEnabled && destinationBoatNumber
+                    ? destinationBoatNumber
+                    : editTarget.boat_number ?? "NO_BOAT";
+
+            const targetBoatAnglers =
+                updatedRows.filter(r => r.boat_number === targetBoatNumber);
+
+            if (targetBoatNumber) {
+                await openBoatForEditing(targetBoatNumber, targetBoatAnglers);
+            }
+
+            setHighlightCompetitorId(String(editTarget.id));
+            resetEditModal();
+        } finally {
+            setSavingEdit(false);
+        }
+    };
 
     /* ========================================================= Render ========================================================= */
 
@@ -469,9 +842,6 @@ export default function Register() {
                                 </span>
                             )}
                         </div>
-
-                       
-
                     </div>
 
                     <div style={{ height: 12 }} />
@@ -553,8 +923,6 @@ export default function Register() {
                                     Paid
                                 </button>
                             </div>
-
-
                         </div>
                     ))}
 
@@ -575,101 +943,74 @@ export default function Register() {
                         >
                             Register Boat & Anglers
                         </button>
-
                     </div>
                 </section>
             )}
 
             {/* ================= BOAT LIST ================= */}
-            {boats.map(([boatNumber, anglers]) => {
+            <div
+                style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginTop: 16,
+                    marginBottom: 8,
+                }}
+            >
+                <h3 style={{ margin: 0 }}>Boat List</h3>
+                <button
+                    className="btn secondary"
+                    onClick={() => {
+                        setShowFinder(true);
+                        setFinderSearch("");
+                        setDraftBoatNumber(null);
+                        setDraftCompetitorId(null);
+                    }}
+                >
+                    Find Boat / Angler
+                </button>
+            </div>
+
+            {boats.map(([boatNumber, boatAnglers]) => {
                 const isOpen = openBoat === boatNumber;
 
                 const boatName =
-                    anglers[0]?.boat?.trim() || "Unnamed Boat";
+                    boatAnglers[0]?.boat?.trim() || "Unnamed Boat";
 
                 const boatLabel =
                     boatNumber === "NO_BOAT"
                         ? boatName
                         : `${boatNumber} — ${boatName}`;
 
+                const refSetter = (el: HTMLDivElement | null) => {
+                    boatRefs.current[boatNumber] = el;
+                };
+
                 return (
                     <section
                         key={boatNumber}
+                        id={`boat-${boatNumber}`}
+                        ref={refSetter}
                         className="card"
                         style={{ marginTop: 12 }}
                     >
                         {/* -------- Boat header -------- */}
                         <div
                             style={{ marginTop: 8, cursor: "pointer" }}
-                            onClick={() => {
-                                if (isOpen && hasUnsavedChanges) {
-                                    if (!confirm("Discard unsaved changes?")) return;
-                                }
-
-                                if (isOpen) {
-                                    setOpenBoat(null);
-                                    setAnglerDrafts({});
-                                    return;
-                                }
-
-                                // Open boat → seed drafts
-                                setOpenBoat(boatNumber);
-                                // 🔹 Load Team Captain for this boat
-                                (async () => {
-                                    if (!competitionId) return;
-
-                                    const captain = await getTeamCaptainForBoat(
-                                        competitionId,
-                                        boatNumber
-                                    );
-
-                                    setTeamCaptain(captain);
-
-                                    if (captain?.competitor_id) {
-                                        setEditCaptainMode("angler");
-                                        setExternalCaptainName("");
-                                    } else if (captain?.display_name) {
-                                        setEditCaptainMode("external");
-                                        setExternalCaptainName(captain.display_name);
-                                    } else {
-                                        setEditCaptainMode(null);
-                                        setExternalCaptainName("");
-                                    }
-                                })();
-
-
-
-                                setBoatDraft({
-                                    boat_number: boatNumber,
-                                    name: anglers[0]?.boat ?? "",
-                                    type: anglers[0]?.boat_type ?? null,
-                                });
-
-                                const seeded: Record<string, Partial<Competitor>> = {};
-                                anglers.forEach(a => {
-                                    seeded[String(a.id)] = { ...a };
-                                });
-
-                                setAnglerDrafts(seeded);
-                            }}
+                            onClick={() =>
+                                handleBoatToggle(boatNumber, boatAnglers, isOpen)
+                            }
                         >
-                            {isOpen ? "▾" : "▸"} {boatLabel} ({anglers.length})
+                            {isOpen ? "▾" : "▸"} {boatLabel} ({boatAnglers.length})
                         </div>
 
                         {isOpen && boatDraft && (
                             <>
                                 {/* ================= BOAT EDIT ================= */}
-                                <div
-                                    style={{
-                                        display: "flex",
-                                        gap: 8,
-                                        padding: 8,
-                                        alignItems: "center",
-                                    }}
-                                >
+                                <div className="boat-edit-row">
                                     <input
                                         value={boatDraft.name}
-                                        style={{ height: 36, lineHeight: "36px" }}
+                                        style={{ flex: 1 }}
                                         onChange={(e) => {
                                             setBoatDraft({ ...boatDraft, name: e.target.value });
                                             setHasUnsavedChanges(true);
@@ -677,8 +1018,8 @@ export default function Register() {
                                     />
 
                                     <select
+                                        className="select--compact"
                                         value={boatDraft.type ?? ""}
-                                        style={{ height: 36 }}
                                         onChange={(e) => {
                                             setBoatDraft({
                                                 ...boatDraft,
@@ -714,6 +1055,7 @@ export default function Register() {
                                         onClick={async () => {
                                             setEditCaptainMode("angler");
                                             setExternalCaptainName("");
+                                            setHasUnsavedChanges(true);
 
                                             if (teamCaptain?.display_name) {
                                                 await clearTeamCaptainForBoat(competitionId!, boatNumber);
@@ -730,6 +1072,7 @@ export default function Register() {
                                             }`}
                                         onClick={async () => {
                                             setEditCaptainMode("external");
+                                            setHasUnsavedChanges(true);
 
                                             if (teamCaptain?.competitor_id) {
                                                 await clearTeamCaptainForBoat(competitionId!, boatNumber);
@@ -743,7 +1086,7 @@ export default function Register() {
                                     <div style={{ width: 240 }}>
                                         {editCaptainMode === "angler" && (
                                             <select
-                                                style={{ width: "100%", height: 36 }}
+                                                style={{ width: "100%" }}
                                                 value={teamCaptain?.competitor_id ?? ""}
                                                 onChange={async (e) => {
                                                     const id = e.target.value || null;
@@ -754,6 +1097,7 @@ export default function Register() {
                                                             boatNumber
                                                         );
                                                         setTeamCaptain(null);
+                                                        setHasUnsavedChanges(true);
                                                         return;
                                                     }
 
@@ -764,10 +1108,11 @@ export default function Register() {
                                                     });
 
                                                     setTeamCaptain(updated);
+                                                    setHasUnsavedChanges(true);
                                                 }}
                                             >
                                                 <option value="">— Select angler —</option>
-                                                {anglers.map((a) => (
+                                                {boatAnglers.map((a) => (
                                                     <option key={a.id} value={String(a.id)}>
                                                         {a.full_name}
                                                     </option>
@@ -777,10 +1122,13 @@ export default function Register() {
 
                                         {editCaptainMode === "external" && (
                                             <input
-                                                style={{ width: "100%", height: 36 }}
+                                                style={{ width: "100%" }}
                                                 placeholder="Skipper name"
                                                 value={externalCaptainName}
-                                                onChange={(e) => setExternalCaptainName(e.target.value)}
+                                                onChange={(e) => {
+                                                    setExternalCaptainName(e.target.value);
+                                                    setHasUnsavedChanges(true);
+                                                }}
                                                 onBlur={async () => {
                                                     if (!externalCaptainName.trim()) return;
 
@@ -791,6 +1139,7 @@ export default function Register() {
                                                     });
 
                                                     setTeamCaptain(updated);
+                                                    setHasUnsavedChanges(true);
                                                 }}
                                             />
                                         )}
@@ -813,42 +1162,53 @@ export default function Register() {
                                             <th style={{ width: 70 }} className="th-center">
                                                 Paid
                                             </th>
-                                            <th style={{ width: 70 }} className="th-center">
-                                                Delete
+                                            <th style={{ width: 90 }} className="th-center">
+                                                Action
                                             </th>
                                         </tr>
                                     </thead>
 
                                     <tbody>
-                                        {anglers.map((r) => {
-                                            const d = anglerDrafts[r.id] ?? r;
+                                        {boatAnglers.map((r) => {
                                             const isCaptain =
                                                 teamCaptain?.competitor_id === String(r.id);
 
-                                            const isEarly =
-                                                !!settings?.earlybird_cutoff_date &&
-                                                new Date(d.registration_date!) <=
-                                                new Date(settings.earlybird_cutoff_date);
+                                            const reg = formatDateISOForInput(r.registration_date);
+                                            const cutoff = formatDateISOForInput(settings?.earlybird_cutoff_date);
+
+                                            const isEarly = !!cutoff && !!reg && reg <= cutoff;
 
                                             const amount =
                                                 settings?.fees &&
                                                 computeFee(
                                                     settings,
-                                                    d.category === "adult" ? "Adult" : "Junior",
-                                                    d.registration_date!
+                                                    r.category === "adult" ? "Adult" : "Junior",
+                                                    r.registration_date!
                                                 );
+
+                                            const isHighlighted =
+                                                String(r.id) === highlightCompetitorId;
+
+                                            const rowStyle: React.CSSProperties = {};
+
+                                            if (isCaptain) {
+                                                Object.assign(rowStyle, {
+                                                    background: "#f0f9ff",
+                                                    borderLeft: "4px solid #0284c7",
+                                                });
+                                            }
+
+                                            if (isHighlighted) {
+                                                Object.assign(rowStyle, {
+                                                    background: rowStyle.background ?? "#fffbeb",
+                                                    boxShadow: "inset 0 0 0 2px #f59e0b",
+                                                });
+                                            }
 
                                             return (
                                                 <tr
                                                     key={String(r.id)}
-                                                    style={
-                                                        isCaptain
-                                                            ? {
-                                                                background: "#f0f9ff",
-                                                                borderLeft: "4px solid #0284c7",
-                                                            }
-                                                            : undefined
-                                                    }
+                                                    style={rowStyle}
                                                 >
                                                     {/* Angler # + star */}
                                                     <td>
@@ -878,41 +1238,10 @@ export default function Register() {
                                                     </td>
 
                                                     {/* Name */}
-                                                    <td>
-                                                        <input
-                                                            value={d.full_name ?? ""}
-                                                            style={{ width: 160, height: 36 }}
-                                                            onChange={(e) => {
-                                                                setAnglerDrafts((x) => ({
-                                                                    ...x,
-                                                                    [r.id]: {
-                                                                        ...x[r.id],
-                                                                        full_name: e.target.value,
-                                                                    },
-                                                                }));
-                                                                setHasUnsavedChanges(true);
-                                                            }}
-                                                        />
-                                                    </td>
+                                                    <td>{r.full_name}</td>
 
                                                     <td>
-                                                        <select
-                                                            value={d.category}
-                                                            style={{ width: 110, height: 36 }}
-                                                            onChange={(e) => {
-                                                                setAnglerDrafts((x) => ({
-                                                                    ...x,
-                                                                    [r.id]: {
-                                                                        ...x[r.id],
-                                                                        category: e.target.value as any,
-                                                                    },
-                                                                }));
-                                                                setHasUnsavedChanges(true);
-                                                            }}
-                                                        >
-                                                            <option value="adult">Adult</option>
-                                                            <option value="junior">Junior</option>
-                                                        </select>
+                                                        {r.category === "adult" ? "Adult" : "Junior"}
                                                     </td>
 
                                                     <td className="cell-center">
@@ -924,85 +1253,28 @@ export default function Register() {
                                                         </span>
                                                     </td>
 
-                                                    <td>
-                                                        <input
-                                                            value={d.membership_no ?? ""}
-                                                            style={{ width: 100, height: 36 }}
-                                                            onChange={(e) => {
-                                                                setAnglerDrafts((x) => ({
-                                                                    ...x,
-                                                                    [r.id]: {
-                                                                        ...x[r.id],
-                                                                        membership_no: e.target.value,
-                                                                    },
-                                                                }));
-                                                                setHasUnsavedChanges(true);
-                                                            }}
-                                                        />
-                                                    </td>
+                                                    <td>{r.membership_no || "—"}</td>
 
-                                                    <td>
-                                                        <input
-                                                            type="date"
-                                                            value={d.registration_date ?? ""}
-                                                            style={{ height: 36 }}
-                                                            onChange={(e) => {
-                                                                setAnglerDrafts((x) => ({
-                                                                    ...x,
-                                                                    [r.id]: {
-                                                                        ...x[r.id],
-                                                                        registration_date: e.target.value,
-                                                                    },
-                                                                }));
-                                                                setHasUnsavedChanges(true);
-                                                            }}
-                                                        />
-                                                    </td>
+                                                    <td>{formatDateNZForDisplay(r.registration_date) || "—"}</td>
+
 
                                                     <td>{amount != null ? `$${amount}` : ""}</td>
 
                                                     <td className="cell-center">
-                                                        <button
-                                                            type="button"
-                                                            className={`pill pill--clickable ${d.paid_on ? "pill--green" : "pill--muted"
+                                                        <span
+                                                            className={`pill ${r.paid_on ? "pill--green" : "pill--muted"
                                                                 }`}
-                                                            onClick={() => {
-                                                                setAnglerDrafts((x) => ({
-                                                                    ...x,
-                                                                    [r.id]: {
-                                                                        ...x[r.id],
-                                                                        paid_on: d.paid_on
-                                                                            ? null
-                                                                            : todayISO(),
-                                                                    },
-                                                                }));
-                                                                setHasUnsavedChanges(true);
-                                                            }}
                                                         >
-                                                            {d.paid_on ? "Paid" : "Unpaid"}
-                                                        </button>
+                                                            {r.paid_on ? "Paid" : "Unpaid"}
+                                                        </span>
                                                     </td>
 
                                                     <td className="cell-center">
                                                         <button
-                                                            className="icon-btn"
-                                                            title="Remove angler"
-                                                            onClick={async () => {
-                                                                const blocked =
-                                                                    await competitorHasResults(
-                                                                        String(r.id)
-                                                                    );
-                                                                if (blocked) {
-                                                                    setDeleteBlocked(true);
-                                                                    setDeleteTarget(r);
-                                                                    return;
-                                                                }
-                                                                setDeleteBlocked(false);
-                                                                setDeleteTarget(r);
-                                                                setConfirmDeleteOpen(true);
-                                                            }}
+                                                            className="btn btn--sm-primary"
+                                                            onClick={() => startEditModal(r)}
                                                         >
-                                                            🗑️
+                                                            Edit
                                                         </button>
                                                     </td>
                                                 </tr>
@@ -1011,26 +1283,13 @@ export default function Register() {
                                     </tbody>
                                 </table>
 
-
-
-
                                 {/* ================= ACTIONS ================= */}
                                 <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                                     <button
                                         className="btn primary"
+                                        disabled={!hasUnsavedChanges}
                                         onClick={async () => {
-                                            if (!competitionId) return;
-
-                                            // Save boat (if changed)
                                             await saveBoatEdit();
-
-                                            // Save anglers
-                                            for (const [id, patch] of Object.entries(anglerDrafts)) {
-                                                await updateCompetitor(id, normalizeCompetitorPatch(patch));
-                                            }
-
-
-                                            setRows(await listCompetitorsForCompetition(competitionId));
                                         }}
                                     >
                                         Save changes
@@ -1040,7 +1299,7 @@ export default function Register() {
                                         className="btn secondary"
                                         onClick={() => {
                                             setOpenBoat(null);
-                                            setAnglerDrafts({});
+                                            setHasUnsavedChanges(false);
                                         }}
                                     >
                                         Cancel
@@ -1052,26 +1311,319 @@ export default function Register() {
                 );
             })}
 
-            {/* ================= DELETE CONFIRMATION MODAL ================= */}
-            {
-                confirmDeleteOpen && !deleteBlocked && deleteTarget && (
-                    <ConfirmModal
-                        title="Remove angler?"
-                        message={`This will remove ${deleteTarget.full_name} from the competition. This action cannot be undone.`}
-                        confirmLabel="Remove"
-                        onCancel={() => {
-                            setConfirmDeleteOpen(false);
-                            setDeleteTarget(null);
-                        }}
-                        onConfirm={async () => {
-                            await handleConfirmDelete();
-                            setConfirmDeleteOpen(false);
-                        }}
-                    />
-                )
-            }
+            {/* ================= FINDER MODAL ================= */}
+            {showFinder && (
+                <div className="modal-backdrop">
+                    <div className="modal-shell">
+                        <h3>Find Boat / Angler</h3>
+
+                        <input
+                            type="text"
+                            placeholder="Search angler or boat…"
+                            value={finderSearch}
+                            onChange={e => setFinderSearch(e.target.value)}
+                            autoFocus
+                        />
+
+                        <div className="modal-lists">
+                            <div className="modal-list">
+                                <strong>Boats</strong>
+                                {boatMatches.length === 0 && (
+                                    <div className="modal-row">No matches</div>
+                                )}
+                                {boatMatches.map(({ boatNumber, boatAnglers, label }) => (
+                                    <div
+                                        key={boatNumber}
+                                        className={`modal-row ${draftBoatNumber === boatNumber ? "active" : ""}`}
+                                        onClick={() => {
+                                            if (draftBoatNumber === boatNumber) {
+                                                setDraftBoatNumber(null);
+                                                setDraftCompetitorId(null);
+                                            } else {
+                                                setDraftBoatNumber(boatNumber);
+                                                setDraftCompetitorId(null);
+                                            }
+                                        }}
+                                    >
+                                        🚤 {label}
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="modal-list">
+                                <strong>Anglers</strong>
+                                {anglerMatches.length === 0 && (
+                                    <div className="modal-row">No matches</div>
+                                )}
+                                {anglerMatches.map(a => (
+                                    <div
+                                        key={a.id}
+                                        className={`modal-row ${draftCompetitorId === String(a.id) ? "active" : ""}`}
+                                        onClick={() => {
+                                            setDraftCompetitorId(String(a.id));
+                                            setDraftBoatNumber(a.boatNumber);
+                                        }}
+                                    >
+                                        👤 {(a.angler_number ?? "—")} · {a.full_name} · {a.boatLabel}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="modal-actions">
+                            <button className="btn" onClick={resetFinderState}>
+                                Cancel
+                            </button>
+                            <button
+                                className="btn primary"
+                                disabled={
+                                    !draftBoatNumber && !draftCompetitorId
+                                }
+                                onClick={handleFinderSelect}
+                            >
+                                Select
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ================= EDIT COMPETITOR MODAL ================= */}
+            {isEditModalOpen && editDraft && editTarget && (
+                <div className="modal-backdrop">
+                    <div className="modal-shell">
+                        <h3>Edit Angler</h3>
+
+                        <div className="form-grid">
+                            <div className="field span-6">
+                                <label>Full Name</label>
+                                <input
+                                    value={editDraft.full_name}
+                                    onChange={(e) =>
+                                        setEditDraft({
+                                            ...editDraft,
+                                            full_name: e.target.value,
+                                        })
+                                    }
+                                />
+                            </div>
+
+                            <div className="field span-6">
+                                <label>Category</label>
+                                <select
+                                    value={editDraft.category}
+                                    onChange={(e) =>
+                                        setEditDraft({
+                                            ...editDraft,
+                                            category: e.target.value as DomainCategory,
+                                        })
+                                    }
+                                >
+                                    <option value="adult">Adult</option>
+                                    <option value="junior">Junior</option>
+                                </select>
+                            </div>
+
+                            <div className="field span-6">
+                                <label>Member Number</label>
+                                <input
+                                    value={editDraft.membership_no}
+                                    onChange={(e) =>
+                                        setEditDraft({
+                                            ...editDraft,
+                                            membership_no: e.target.value,
+                                        })
+                                    }
+                                />
+                            </div>
+
+                            <div className="field span-6">
+                                <label>Registered Date</label>
+                                <input
+                                    type="date"
+                                    value={editDraft.registration_date}
+                                    onChange={(e) =>
+                                        setEditDraft({
+                                            ...editDraft,
+                                            registration_date: e.target.value,
+                                        })
+                                    }
+                                />
+                            </div>
+                        </div>
+
+                        <div
+                            style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                marginTop: 8,
+                            }}
+                        >
+                            <strong className="muted" style={{ fontSize: 12 }}>
+                                Payment
+                            </strong>
+                            <button
+                                type="button"
+                                className={`pill pill--clickable ${editDraft.paid_on ? "pill--green" : "pill--muted"}`}
+                                onClick={() =>
+                                    setEditDraft({
+                                        ...editDraft,
+                                        paid_on: editDraft.paid_on ? null : todayISO(),
+                                    })
+                                }
+                            >
+                                {editDraft.paid_on ? "Paid" : "Mark as Paid"}
+                            </button>
+                        </div>
+
+                        <div
+                            style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                marginTop: 12,
+                            }}
+                        >
+                            <strong className="muted" style={{ fontSize: 12 }}>
+                                Boat
+                            </strong>
+                            <button
+                                type="button"
+                                className={`pill pill--clickable ${moveBoatEnabled ? "pill--green" : "pill--muted"}`}
+                                onClick={() => {
+                                    const next = !moveBoatEnabled;
+                                    setMoveBoatEnabled(next);
+                                    if (!next) {
+                                        setMoveTargetBoatNumber(null);
+                                        setCreateNewBoatEnabled(false);
+                                        setNewBoatName("");
+                                        setNewBoatType(null);
+                                    }
+                                }}
+                            >
+                                {moveBoatEnabled ? "Move to another boat" : "Select if moving the angler to another boat"}
+                            </button>
+                        </div>
+
+                        {moveBoatEnabled && (
+                            <>
+                                <div className="field" style={{ marginTop: 8 }}>
+                                    <label>Find boat</label>
+                                    <input
+                                        placeholder="Search boat number or name…"
+                                        value={moveSearch}
+                                        onChange={(e) => setMoveSearch(e.target.value)}
+                                    />
+                                </div>
+
+                                <div className="modal-lists" style={{ marginTop: 8 }}>
+                                    <div className="modal-list">
+                                        {moveBoatMatches.length === 0 && (
+                                            <div className="modal-row">No matches</div>
+                                        )}
+
+                                        {moveBoatMatches.map(({ boatNumber, label }) => (
+                                            <div
+                                                key={boatNumber}
+                                                className={`modal-row ${moveTargetBoatNumber === boatNumber ? "active" : ""}`}
+                                                onClick={() => {
+                                                    setMoveTargetBoatNumber(
+                                                        moveTargetBoatNumber === boatNumber ? null : boatNumber
+                                                    );
+                                                    setCreateNewBoatEnabled(false);
+                                                }}
+                                            >
+                                                🚤 {label}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div
+                                    style={{
+                                        display: "flex",
+                                        justifyContent: "space-between",
+                                        alignItems: "center",
+                                        marginTop: 12,
+                                    }}
+                                >
+                                    <strong className="muted" style={{ fontSize: 12 }}>
+                                        Create new boat
+                                    </strong>
+                                    <button
+                                        type="button"
+                                        className={`pill pill--clickable ${createNewBoatEnabled ? "pill--green" : "pill--muted"}`}
+                                        onClick={() => {
+                                            const next = !createNewBoatEnabled;
+                                            setCreateNewBoatEnabled(next);
+                                            if (next) {
+                                                setMoveTargetBoatNumber(null);
+                                            } else {
+                                                setNewBoatName("");
+                                                setNewBoatType(null);
+                                            }
+                                        }}
+                                    >
+                                        {createNewBoatEnabled ? "Creating new boat" : "Select if creating a new boat"}
+                                    </button>
+                                </div>
+
+                                {createNewBoatEnabled && (
+                                    <div className="form-grid" style={{ marginTop: 8 }}>
+                                        <div className="field span-6">
+                                            <label>New boat name</label>
+                                            <input
+                                                value={newBoatName}
+                                                onChange={(e) => setNewBoatName(e.target.value)}
+                                            />
+                                        </div>
+                                        <div className="field span-6">
+                                            <label>Boat type (optional)</label>
+                                            <select
+                                                value={newBoatType ?? ""}
+                                                onChange={(e) =>
+                                                    setNewBoatType(
+                                                        e.target.value
+                                                            ? (e.target.value as BoatType)
+                                                            : null
+                                                    )
+                                                }
+                                            >
+                                                <option value="">— Select type —</option>
+                                                <option value="Trailer">Trailer</option>
+                                                <option value="Launch">Launch</option>
+                                                <option value="Charter">Charter</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                )}
+                            </>
+                        )}
+
+                        <div className="modal-actions">
+                            <button
+                                className="btn secondary"
+                                onClick={() => {
+                                    if (hasModalUnsavedChanges()) {
+                                        if (!confirm("Discard changes?")) return;
+                                    }
+                                    resetEditModal();
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                className="btn primary"
+                                disabled={savingEdit}
+                                onClick={handleSaveEdit}
+                            >
+                                {savingEdit ? "Saving…" : "Save"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </section>
-     );
-
-
+    );
 }

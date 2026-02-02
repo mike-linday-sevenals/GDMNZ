@@ -214,7 +214,6 @@ export async function listCompetitorsForCompetition(competitionId: string) {
 // ============================================================================
 // UPDATE COMPETITOR (NULL-SAFE, AUTHORITATIVE)
 // ============================================================================
-
 export async function updateCompetitor(
     id: string | number,
     patch: Partial<{
@@ -248,6 +247,39 @@ export async function updateCompetitor(
         .from("competitor")
         .update(update)
         .eq("id", id)
+        .select()
+        .single();
+
+    if (error) throw error;
+    return data;
+}
+
+// ============================================================================
+// MOVE COMPETITOR TO BOAT (single row update)
+// ============================================================================
+export async function moveCompetitorToBoat(
+    competitorId: string | number,
+    payload: {
+        boat_number: string;
+        boat: string;
+        boat_type?: BoatType | null;
+    }
+) {
+    if (!client) throw new Error("Supabase not ready");
+
+    const update: Record<string, any> = {
+        boat_number: payload.boat_number,
+        boat: payload.boat.trim(),
+    };
+
+    if (payload.boat_type !== undefined) {
+        update.boat_type = payload.boat_type ?? null;
+    }
+
+    const { data, error } = await client
+        .from("competitor")
+        .update(update)
+        .eq("id", competitorId)
         .select()
         .single();
 

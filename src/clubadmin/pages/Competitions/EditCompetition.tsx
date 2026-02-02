@@ -194,8 +194,16 @@ import {
 import FeedbackModal from "@/components/FeedbackModal";
 
 
+function formatDateInput(date: Date) {
+     const year = date.getFullYear();
+     const month = `${date.getMonth() + 1}`.padStart(2, "0");
+     const day = `${date.getDate()}`.padStart(2, "0");
+ 
+     return `${year}-${month}-${day}`;
+ }
+ 
 export default function EditCompetition() {
-    const navigate = useNavigate();
+     const navigate = useNavigate();
 
     // ...
 
@@ -300,7 +308,6 @@ export default function EditCompetition() {
         window.addEventListener("beforeunload", handler);
         return () => window.removeEventListener("beforeunload", handler);
     }, [pageDirty]);
-
 
 
     // =========================================================================
@@ -431,33 +438,15 @@ export default function EditCompetition() {
                 // -------------------------------------------------------------
                 // 9️⃣b️⃣ Competition points (AFTER species loaded)
                 // -------------------------------------------------------------
-                const points = await listCompetitionPoints(id);
 
-                if (!cancelled) {
-                    const {
-                        tagReleaseRules,
-                        gameFishRules,
-                    } = mapPointsRulesToModalState(points);
-
-                    setTagReleaseRules(tagReleaseRules);
-                    setGameFishRules(gameFishRules);
-                }
 
                 // -------------------------------------------------------------
                 // 9️⃣ Persisted competition species
                 // -------------------------------------------------------------
                 const compSpecies = await listCompetitionSpecies(id);
-
-                // compSpecies is CompetitionSpecies[]
                 const speciesIds = compSpecies.map(s => s.species_id);
 
-                if (!cancelled) {
-                    setSelectedSpeciesIds(speciesIds);
-                    setSavedSpeciesIds(speciesIds);
-                    setSpeciesDirty(false);
-                }
-
-
+                // compSpecies is CompetitionSpecies[]
 
                 if (!cancelled) {
                     setSelectedSpeciesIds(speciesIds);
@@ -684,7 +673,7 @@ export default function EditCompetition() {
             await saveCompetitionPoints(id, { rules });
 
             // --------------------------------------------------
-            // 6️⃣ CLEAR DIRTY STATE (AUTHORITATIVE RESET)
+            // 6️⃣ CLEAR DIRTY STATE (AUTHORITIVE RESET)
             // --------------------------------------------------
             setSavedSpeciesIds(selectedSpeciesIds);
             setSpeciesDirty(false);
@@ -745,6 +734,67 @@ export default function EditCompetition() {
         rule: { landed: PointsFormula };
         onChange: (landed: PointsFormula) => void;
     };
+
+
+    // =========================================================================
+    // DERIVED BRIEFING DATE LIMITS
+    // =========================================================================
+
+    const startsAtDate = competition?.starts_at
+        ? new Date(`${competition.starts_at}T00:00:00`)
+        : null;
+
+    const briefingMaxDate = startsAtDate
+        ? formatDateInput(startsAtDate)
+        : undefined;
+
+    const briefingMinDate = startsAtDate
+        ? formatDateInput(
+            new Date(startsAtDate.getTime() - 24 * 60 * 60 * 1000)
+        )
+        : undefined;
+
+    const clampBriefingDate = (value: string | null) => {
+        if (!value) return null;
+
+        if (briefingMinDate && value < briefingMinDate) {
+            return briefingMinDate;
+        }
+
+        if (briefingMaxDate && value > briefingMaxDate) {
+            return briefingMaxDate;
+        }
+
+        return value;
+    };
+
+    useEffect(() => {
+        setBriefing((b) => {
+            const clamped = clampBriefingDate(b.briefing_date);
+            return clamped === b.briefing_date ? b : { ...b, briefing_date: clamped };
+        });
+    }, [briefingMinDate, briefingMaxDate]);
+
+
+    // Sync competition start date to the first fishing day (Day 1)
+    useEffect(() => {
+        if (!days.length) {
+            return;
+        }
+
+        const firstDayDate = days[0]?.day_date;
+        if (!firstDayDate) {
+            return;
+        }
+
+        setCompetition((current) => {
+            if (!current || current.starts_at === firstDayDate) {
+                return current;
+            }
+
+            return { ...current, starts_at: firstDayDate };
+        });
+    }, [days]);
 
 
     // =========================================================================
@@ -835,6 +885,76 @@ export default function EditCompetition() {
                         onClose={() => setFeedbackMessage(null)}
                     />
                 )}
+
+                {showDivisionModal && (
+  <div className="modal-backdrop">
+    <div className="modal card" style={{ maxWidth: 720 }}>
+      <h3>Edit divisions</h3>
+
+      <p className="muted">
+        Select the divisions that apply to this competition.
+      </p>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        {allDivisions
+          .slice()
+          .sort((a, b) => a.sort_order - b.sort_order)
+          .map((d) => {
+            const checked = selectedDivisionIds.includes(d.id);
+
+            return (
+              <label key={d.id} className="pill pill--clickable" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => {
+                    setSelectedDivisionIds((prev) => {
+                      const next = prev.includes(d.id)
+                        ? prev.filter((x) => x !== d.id)
+                        : [...prev, d.id];
+
+                      // dirty calc against last-saved selection
+                      const isDirty =
+                        next.length !== savedDivisionIds.length ||
+                        next.some((x) => !savedDivisionIds.includes(x));
+
+                      setDivisionsDirty(isDirty);
+                      return next;
+                    });
+                  }}
+                />
+                <span>{d.name}</span>
+              </label>
+            );
+          })}
+      </div>
+
+      <div className="modal-actions" style={{ marginTop: 16 }}>
+        <button
+          type="button"
+          className="btn btn--ghost"
+          onClick={() => {
+            // revert modal changes
+            setSelectedDivisionIds(savedDivisionIds);
+            setDivisionsDirty(false);
+            setShowDivisionModal(false);
+          }}
+        >
+          Cancel
+        </button>
+
+        <button
+          type="button"
+          className="btn primary"
+          onClick={() => setShowDivisionModal(false)}
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
 
                 {showDeleteModal && (
                     <div className="modal-backdrop">
@@ -1219,13 +1339,15 @@ export default function EditCompetition() {
                                     </div>
 
                                     <div className="division-actions">
-                                        <button
-                                            type="button"
-                                            className="btn btn--sm"
-                                            disabled
-                                        >
-                                            Edit divisions
-                                        </button>
+<button
+  type="button"
+  className="btn btn--sm"
+  disabled={hasResults}
+  title={hasResults ? "Divisions can't be changed after results exist." : "Edit divisions"}
+  onClick={() => setShowDivisionModal(true)}
+>
+  Edit divisions
+</button>
 
                                     </div>
                                 </div>
@@ -1280,14 +1402,21 @@ export default function EditCompetition() {
                                         <label>Date</label>
                                         <input
                                             type="date"
+                                            min={briefingMinDate}
+                                            max={briefingMaxDate}
                                             value={briefing.briefing_date ?? ""}
                                             onChange={(e) =>
                                                 setBriefing((b) => ({
                                                     ...b,
-                                                    briefing_date: e.target.value || null,
+                                                    briefing_date: clampBriefingDate(
+                                                        e.target.value || null
+                                                    ),
                                                 }))
                                             }
                                         />
+                                        <small className="muted">
+                                            Must be the competition start date or the day before.
+                                        </small>
                                     </div>
 
                                     <div className="field span-4">
