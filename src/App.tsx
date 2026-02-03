@@ -1,14 +1,11 @@
-﻿// ============================================================================
-// src/App.tsx
-// ============================================================================
-
-import { Routes, Route, Navigate } from "react-router-dom";
+﻿import { Routes, Route, Navigate } from "react-router-dom";
 
 /* =====================================================================
    🌍 PUBLIC PAGES
    ===================================================================== */
 import LandingPage from "./clubadmin/pages/LandingPage";
 import PublicResultsPage from "./clubadmin/pages/PublicResultsPage";
+import PublicRegister from "./clubadmin/pages/PublicRegister";
 
 /* =====================================================================
    🛠️ CLUB OPERATIONS (ORG-SCOPED)
@@ -73,6 +70,7 @@ export default function App() {
                 <Route path="/" element={<LandingPage />} />
                 <Route path="/results" element={<PublicResultsPage />} />
                 <Route path="/results/:slug" element={<PublicResultsPage />} />
+                <Route path="/c/:slug/register" element={<PublicRegister />} />
             </Route>
 
             {/* ===============================================================

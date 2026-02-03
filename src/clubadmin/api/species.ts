@@ -5,30 +5,7 @@
 // Club-admin scoped Species & Fish Type API
 // ============================================================================
 
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import type { Species } from "@/types";
-
-// ============================================================================
-// SUPABASE INIT (mirrors competitions.ts intentionally)
-// ============================================================================
-
-const rawUrl = (import.meta as any).env?.VITE_SUPABASE_URL;
-const rawKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
-
-function safeUrl(u?: string | null) {
-    if (!u || typeof u !== "string") return null;
-    try {
-        return new URL(u.trim()).toString();
-    } catch {
-        return null;
-    }
-}
-
-const url = safeUrl(rawUrl);
-const key = rawKey?.trim() || null;
-
-export const client: SupabaseClient | null =
-    url && key ? createClient(url, key) : null;
+import { client } from "@/services/api";
 
 // ============================================================================
 // TYPES
@@ -37,6 +14,21 @@ export const client: SupabaseClient | null =
 export type FishType = {
     fish_type_id: string;
     name: string;
+};
+
+export type SpeciesCategory = {
+    species_category_id?: string;
+    name: string;
+};
+
+export type Species = {
+    id: number;
+    name: string;
+    is_measure: boolean;
+
+    fish_type_id: string;
+    species_category_id: string | null;
+    species_category: SpeciesCategory | null;
 };
 
 // Shape required by PrizeWizardModal
@@ -52,18 +44,33 @@ export type CompetitionSpecies = {
 };
 
 // ============================================================================
+// HELPERS
+// ============================================================================
+
+function unwrapOne<T>(maybe: T | T[] | null | undefined): T | null {
+    if (!maybe) return null;
+    return Array.isArray(maybe) ? maybe[0] ?? null : maybe;
+}
+
+function requireClient() {
+    if (!client) throw new Error("Supabase client not ready");
+    return client;
+}
+
+// ============================================================================
 // GLOBAL SPECIES
 // ============================================================================
 
 /**
- * Returns all active species with fish type + category.
+ * Returns all active species with category.
  */
 export async function listSpecies(): Promise<Species[]> {
-    if (!client) return [];
+    const sb = requireClient();
 
-    const { data, error } = await client
+    const { data, error } = await sb
         .from("species")
-        .select(`
+        .select(
+            `
             id,
             name,
             is_measure,
@@ -73,17 +80,20 @@ export async function listSpecies(): Promise<Species[]> {
                 species_category_id,
                 name
             )
-        `)
+        `
+        )
         .eq("is_active", true)
         .order("name");
 
     if (error) throw error;
 
     return (data ?? []).map((row: any) => ({
-        ...row,
-        species_category: Array.isArray(row.species_category)
-            ? row.species_category[0]
-            : row.species_category,
+        id: row.id,
+        name: row.name,
+        is_measure: !!row.is_measure,
+        fish_type_id: row.fish_type_id,
+        species_category_id: row.species_category_id ?? null,
+        species_category: unwrapOne<SpeciesCategory>(row.species_category),
     }));
 }
 
@@ -97,25 +107,25 @@ export async function listSpecies(): Promise<Species[]> {
 export async function listFishTypesForCompetitionType(
     competitionTypeId: string
 ): Promise<FishType[]> {
-    if (!client) throw new Error("Supabase not ready");
+    const sb = requireClient();
 
-    const { data, error } = await client
+    const { data, error } = await sb
         .from("competition_type_fish_type")
-        .select(`
+        .select(
+            `
             fish_type:fish_type_id (
                 fish_type_id,
                 name
             )
-        `)
+        `
+        )
         .eq("competition_type_id", competitionTypeId);
 
     if (error) throw error;
 
-    return (data ?? []).map((row: any) =>
-        Array.isArray(row.fish_type)
-            ? row.fish_type[0]
-            : row.fish_type
-    );
+    return (data ?? [])
+        .map((row: any) => unwrapOne<FishType>(row.fish_type))
+        .filter((x: FishType | null): x is FishType => !!x);
 }
 
 // ============================================================================
@@ -128,12 +138,13 @@ export async function listFishTypesForCompetitionType(
 export async function listSpeciesByFishTypes(
     fishTypeIds: string[]
 ): Promise<Species[]> {
-    if (!client) throw new Error("Supabase not ready");
+    const sb = requireClient();
     if (!fishTypeIds.length) return [];
 
-    const { data, error } = await client
+    const { data, error } = await sb
         .from("species")
-        .select(`
+        .select(
+            `
             id,
             name,
             is_measure,
@@ -143,7 +154,8 @@ export async function listSpeciesByFishTypes(
                 species_category_id,
                 name
             )
-        `)
+        `
+        )
         .in("fish_type_id", fishTypeIds)
         .eq("is_active", true)
         .order("name");
@@ -151,10 +163,12 @@ export async function listSpeciesByFishTypes(
     if (error) throw error;
 
     return (data ?? []).map((row: any) => ({
-        ...row,
-        species_category: Array.isArray(row.species_category)
-            ? row.species_category[0]
-            : row.species_category,
+        id: row.id,
+        name: row.name,
+        is_measure: !!row.is_measure,
+        fish_type_id: row.fish_type_id,
+        species_category_id: row.species_category_id ?? null,
+        species_category: unwrapOne<SpeciesCategory>(row.species_category),
     }));
 }
 
@@ -173,11 +187,12 @@ export async function listSpeciesByFishTypes(
 export async function listCompetitionSpecies(
     competitionId: string
 ): Promise<CompetitionSpecies[]> {
-    if (!client) throw new Error("Supabase not ready");
+    const sb = requireClient();
 
-    const { data, error } = await client
+    const { data, error } = await sb
         .from("competition_species")
-        .select(`
+        .select(
+            `
             species:species_id (
                 id,
                 name,
@@ -191,35 +206,33 @@ export async function listCompetitionSpecies(
                     name
                 )
             )
-        `)
+        `
+        )
         .eq("competition_id", competitionId);
 
     if (error) throw error;
 
-    return (data ?? []).map((row: any) => {
-        const s = Array.isArray(row.species)
-            ? row.species[0]
-            : row.species;
+    return (data ?? [])
+        .map((row: any) => {
+            const s = unwrapOne<any>(row.species);
+            if (!s) return null;
 
-        const fishType = Array.isArray(s.fish_type)
-            ? s.fish_type[0]
-            : s.fish_type;
+            const fishType = unwrapOne<any>(s.fish_type);
 
-        return {
-            id: s.id,
-            name: s.name,
+            return {
+                id: s.id,
+                name: s.name,
 
-            fish_type_id: s.fish_type_id,
-            fish_type_name: fishType?.name ?? "Unknown fish type",
+                fish_type_id: s.fish_type_id,
+                fish_type_name: fishType?.name ?? "Unknown fish type",
 
-            species_category_id: s.species_category_id ?? null,
-            species_category: s.species_category
-                ? Array.isArray(s.species_category)
-                    ? s.species_category[0]
-                    : s.species_category
-                : null,
-        };
-    });
+                species_category_id: s.species_category_id ?? null,
+                species_category: unwrapOne<{ name: string }>(s.species_category),
+            } satisfies CompetitionSpecies;
+        })
+        .filter(
+            (x: CompetitionSpecies | null): x is CompetitionSpecies => !!x
+        );
 }
 
 // ============================================================================
@@ -230,16 +243,18 @@ export async function listCompetitionSpecies(
  * Replaces all species for a competition.
  */
 export async function saveCompetitionSpecies(
-    organisationId: string,
+    _organisationId: string,
     competitionId: string,
     speciesIds: number[]
 ) {
-    if (!client) throw new Error("Supabase not ready");
+    const sb = requireClient();
 
-    await client
+    const { error: delError } = await sb
         .from("competition_species")
         .delete()
         .eq("competition_id", competitionId);
+
+    if (delError) throw delError;
 
     if (!speciesIds.length) return [];
 
@@ -248,7 +263,7 @@ export async function saveCompetitionSpecies(
         species_id: id,
     }));
 
-    const { data, error } = await client
+    const { data, error } = await sb
         .from("competition_species")
         .insert(rows)
         .select();

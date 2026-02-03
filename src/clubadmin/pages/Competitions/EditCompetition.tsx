@@ -8,43 +8,44 @@
 //  - Child records are guaranteed by the API
 // ============================================================================
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-    useParams,
     Link,
-    useNavigate,
     Outlet,
     useMatch,
+    useNavigate,
+    useParams,
 } from "react-router-dom";
 
 import {
-    listCompetitionPoints,
     saveCompetitionPoints,
 } from "@/clubadmin/api/competitionPoints";
 
+import { QRCodeSVG } from "qrcode.react";
 
+import { listPublicOrganisations } from "@/services/api";
 
 // ============================================================================
 // Club-admin scoped APIs — competitions (PERSISTENCE / JOIN TABLES)
 // ============================================================================
 
 import {
-    getCompetition,
-    updateCompetition,
-    listCompetitionDays,
-    updateCompetitionDay,
     addCompetitionDay,
+    canDeleteCompetition,
+    competitionHasResults,
+    deleteCompetition,
     deleteCompetitionDay,
+    getCompetition,
+    getCompetitionBriefing,
+    listCompetitionDays,
+    listCompetitionSpecies, // ✅ ID-ONLY (species_id)
     listCompetitionTypes,
     listCompModes,
     listPrizeModes,
-    getCompetitionBriefing,
+    saveCompetitionSpecies, // ✅ ID-ONLY persistence
+    updateCompetition,
+    updateCompetitionDay,
     upsertCompetitionBriefing,
-    canDeleteCompetition,
-    deleteCompetition,
-    listCompetitionSpecies,      // ✅ ID-ONLY (species_id)
-    saveCompetitionSpecies,       // ✅ ID-ONLY persistence
-    competitionHasResults
 } from "@/clubadmin/api/competitions";
 
 // ============================================================================
@@ -52,9 +53,8 @@ import {
 // ============================================================================
 
 import {
-    listSpecies,
     listFishTypesForCompetitionType,
-    listSpeciesByFishTypes
+    listSpeciesByFishTypes,
 } from "@/clubadmin/api/species";
 
 import CompetitionPrizes from "@/clubadmin/pages/CompetitionPrizes/CompetitionPrizes";
@@ -64,70 +64,6 @@ import CompetitionFeesCard from
 
 import type { CompetitionPointsRuleDTO } from "@/clubadmin/api/competitionPoints";
 
-function mapPointsRulesToModalState(
-    rules: CompetitionPointsRuleDTO[]
-): {
-    tagReleaseRules: TagReleaseRule[];
-    gameFishRules: LandedGroupRule[];
-} {
-    // -----------------------------
-    // TAG & RELEASE (flat points)
-    // -----------------------------
-
-    const tagReleaseMap = new Map<string, TagReleaseRule>();
-
-    for (const rule of rules) {
-        if (
-            rule.outcome !== "tagged_released" ||
-            rule.points_mode !== "flat" ||
-            !rule.species_group_code
-        ) {
-            continue;
-        }
-
-        if (!tagReleaseMap.has(rule.points_value.toString())) {
-            tagReleaseMap.set(rule.points_value.toString(), {
-                species_group_ids: [],
-                points: rule.points_value,
-            });
-        }
-
-        tagReleaseMap
-            .get(rule.points_value.toString())!
-            .species_group_ids.push(rule.species_group_code);
-    }
-
-    const tagReleaseRules = Array.from(tagReleaseMap.values());
-
-    // -----------------------------
-    // GAME FISH – LANDED (weight)
-    // -----------------------------
-
-    const gameFishRules: LandedGroupRule[] = rules
-        .filter(
-            r =>
-                r.outcome === "landed" &&
-                r.points_mode === "weight" &&
-                !!r.species_category_id
-        )
-        .map(r => ({
-            species_category_id: r.species_category_id!,
-            formula: {
-                multiplier: r.points_value,
-                divide_by_line_weight: r.divide_by_line_weight,
-            },
-        }));
-
-    return {
-        tagReleaseRules,
-        gameFishRules,
-    };
-}
-
-
-
-// Types
-
 type PointsFormula =
     | { mode: "none" }
     | { mode: "flat"; value: number }
@@ -136,9 +72,6 @@ type PointsFormula =
         multiplier: number;
         divide_by_line_weight: boolean;
     };
-
-
-
 
 type TagReleaseRule = {
     species_group_ids: string[]; // eg: ["marlin"]
@@ -153,8 +86,10 @@ type LandedGroupRule = {
     };
 };
 
-
-
+type OrganisationSummary = {
+    organisation_id: string;
+    organisation_name: string;
+};
 
 import type {
     Competition,
@@ -163,7 +98,6 @@ import type {
     CompetitionType,
     CompMode,
     PrizeMode,
-    CompetitionSpeciesRow,
 } from "@/types";
 
 type FishingStartType = "None" | "Required";
@@ -184,7 +118,6 @@ type Division = {
     sort_order: number;
 };
 
-
 import {
     listCompetitionDivisions,
     saveCompetitionDivisions,
@@ -193,19 +126,19 @@ import {
 
 import FeedbackModal from "@/components/FeedbackModal";
 
-
 function formatDateInput(date: Date) {
-     const year = date.getFullYear();
-     const month = `${date.getMonth() + 1}`.padStart(2, "0");
-     const day = `${date.getDate()}`.padStart(2, "0");
- 
-     return `${year}-${month}-${day}`;
- }
- 
-export default function EditCompetition() {
-     const navigate = useNavigate();
+    const year = date.getFullYear();
+    const month = `${date.getMonth() + 1}`.padStart(2, "0");
+    const day = `${date.getDate()}`.padStart(2, "0");
 
-    // ...
+    return `${year}-${month}-${day}`;
+}
+
+function handlePrintLateRegistration() {
+    window.print();
+}
+export default function EditCompetition() {
+    const navigate = useNavigate();
 
     // =============================
     // Species Points Configuration
@@ -228,6 +161,8 @@ export default function EditCompetition() {
         organisationId: string;
         id: string;
     }>();
+
+    const [clubName, setClubName] = useState<string | null>(null);
 
 
     const [competition, setCompetition] = useState<Competition | null>(null);
@@ -255,6 +190,7 @@ export default function EditCompetition() {
     );
 
 
+
     const [briefing, setBriefing] = useState<CompetitionBriefing>({
         briefing_date: null,
         briefing_time: null,
@@ -271,6 +207,8 @@ export default function EditCompetition() {
     const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
     const [showDivisionModal, setShowDivisionModal] = useState(false);
     const [showSpeciesPoints, setShowSpeciesPoints] = useState(false);
+    const [isQrOpen, setIsQrOpen] = useState(false);
+    const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
 
 
     // All divisions available in the system (NOT competition-specific)
@@ -328,6 +266,25 @@ export default function EditCompetition() {
                 const comp = await getCompetition(organisationId, id);
                 if (cancelled) return;
                 setCompetition(comp);
+
+                // -------------------------------------------------------------
+                // 1️⃣c️⃣ Club / Organisation name (for QR modal / print)
+                // -------------------------------------------------------------
+                try {
+                    const orgs = (await listPublicOrganisations()) as OrganisationSummary[];
+
+                    const match =
+                        orgs?.find((o) => o.organisation_id === organisationId) ??
+                        null;
+
+                    if (!cancelled) {
+                        setClubName(match?.organisation_name ?? null);
+                    }
+                } catch (e) {
+                    // Non-fatal: QR still works without a club name
+                    if (!cancelled) setClubName(null);
+                }
+
 
                 // -------------------------------------------------------------
                 // 1️⃣b️⃣ Has results?
@@ -414,7 +371,9 @@ export default function EditCompetition() {
                             comp.competition_type_id
                         );
 
-                    const fishTypeIds = fishTypes.map(ft => ft.fish_type_id);
+                    const fishTypeIds = Array.isArray(fishTypes)
+                        ? fishTypes.map(ft => ft.fish_type_id)
+                        : [];
 
                     if (!cancelled) {
                         setAllowedFishTypeIds(fishTypeIds);
@@ -423,10 +382,26 @@ export default function EditCompetition() {
 
                     // Load species scoped to fish types
                     const loadedSpecies =
-                        await listSpeciesByFishTypes(fishTypeIds);
+                        fishTypeIds.length > 0
+                            ? await listSpeciesByFishTypes(fishTypeIds)
+                            : [];
 
                     if (!cancelled) {
-                        setAllSpecies(loadedSpecies);
+                        const normalised: Species[] = (loadedSpecies as any[]).map((s) => {
+                            const catId: string = s.species_category_id ?? "other";
+                            const cat = s.species_category ?? { species_category_id: catId, name: "Other" };
+
+                            return {
+                                ...s,
+                                species_category_id: catId,
+                                species_category: {
+                                    species_category_id: cat.species_category_id ?? catId,
+                                    name: cat.name ?? "Other",
+                                },
+                            } as Species;
+                        });
+
+                        setAllSpecies(normalised);
                     }
                 } else {
                     if (!cancelled) {
@@ -443,8 +418,12 @@ export default function EditCompetition() {
                 // -------------------------------------------------------------
                 // 9️⃣ Persisted competition species
                 // -------------------------------------------------------------
+
+
                 const compSpecies = await listCompetitionSpecies(id);
-                const speciesIds = compSpecies.map(s => s.species_id);
+                const speciesIds = Array.isArray(compSpecies)
+                    ? compSpecies.map(s => s.species_id)
+                    : [];
 
                 // compSpecies is CompetitionSpecies[]
 
@@ -729,13 +708,6 @@ export default function EditCompetition() {
         setDays((prev) => prev.filter((d) => d.id !== dayId));
     }
 
-    type RenderPointsRuleArgs = {
-        label: string;
-        rule: { landed: PointsFormula };
-        onChange: (landed: PointsFormula) => void;
-    };
-
-
     // =========================================================================
     // DERIVED BRIEFING DATE LIMITS
     // =========================================================================
@@ -800,16 +772,66 @@ export default function EditCompetition() {
     // =========================================================================
     // RENDER
     // =========================================================================
+    // derive registration URL safely (works even while competition is null during load)
+    const registrationUrl: string | null = competition?.public_results_slug
+        ? `${window.location.origin}/c/${competition.public_results_slug}/register`
+        : null;
+
+    function closeQrModal() {
+        setIsQrOpen(false);
+        setCopyStatus("idle");
+    }
+
+    async function handleCopyRegistrationUrl() {
+        if (!registrationUrl) return;
+
+        try {
+            await navigator.clipboard.writeText(registrationUrl);
+            setCopyStatus("copied");
+            window.setTimeout(() => setCopyStatus("idle"), 1500);
+        } catch {
+            setCopyStatus("error");
+        }
+    }
+
+    // ESC closes QR modal (MUST be above early return so hook order never changes)
+    useEffect(() => {
+        if (!isQrOpen) return;
+
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape") closeQrModal();
+        };
+
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isQrOpen]);
+
+
 
     if (loading || !competition) {
         return <p className="muted">Loading…</p>;
     }
+    const displayedClubName =
+        clubName ?? (organisationId ? `Club (${organisationId})` : "Club");
+
+    const printTimestamp = new Date().toLocaleString("en-NZ", {
+        timeZone: "Pacific/Auckland",
+        year: "numeric",
+        month: "short",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+    });
+
 
     const displayedDivisions: Division[] = divisionsDirty
         ? allDivisions
             .filter(d => selectedDivisionIds.includes(d.id))
             .sort((a, b) => a.sort_order - b.sort_order)
         : competitionDivisions;
+
+    
 
     return (
         <>
@@ -822,6 +844,24 @@ export default function EditCompetition() {
                         <span className="edit-context">
                             {competition.name}
                         </span>
+
+                        <button
+                            type="button"
+                            className="btn btn--ghost"
+                            style={{ marginLeft: "auto" }}
+                            disabled={!competition.public_results_slug}
+                            title={
+                                competition.public_results_slug
+                                    ? "Show registration QR"
+                                    : "Set a public slug to enable registration QR"
+                            }
+                            onClick={() => {
+                                setCopyStatus("idle");
+                                setIsQrOpen(true);
+                            }}
+                        >
+                            Registration QR
+                        </button>
 
                         <Link
                             to={`/clubadmin/${organisationId}/admin/competitions`}
@@ -887,73 +927,282 @@ export default function EditCompetition() {
                 )}
 
                 {showDivisionModal && (
-  <div className="modal-backdrop">
-    <div className="modal card" style={{ maxWidth: 720 }}>
-      <h3>Edit divisions</h3>
+                    <div className="modal-backdrop">
+                        <div className="modal card" style={{ maxWidth: 720 }}>
+                            <h3>Edit divisions</h3>
 
-      <p className="muted">
-        Select the divisions that apply to this competition.
-      </p>
+                            <p className="muted">
+                                Select the divisions that apply to this competition.
+                            </p>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        {allDivisions
-          .slice()
-          .sort((a, b) => a.sort_order - b.sort_order)
-          .map((d) => {
-            const checked = selectedDivisionIds.includes(d.id);
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                                {allDivisions
+                                    .slice()
+                                    .sort((a, b) => a.sort_order - b.sort_order)
+                                    .map((d) => {
+                                        const checked = selectedDivisionIds.includes(d.id);
 
-            return (
-              <label key={d.id} className="pill pill--clickable" style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={() => {
-                    setSelectedDivisionIds((prev) => {
-                      const next = prev.includes(d.id)
-                        ? prev.filter((x) => x !== d.id)
-                        : [...prev, d.id];
+                                        return (
+                                            <label key={d.id} className="pill pill--clickable" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={checked}
+                                                    onChange={() => {
+                                                        setSelectedDivisionIds((prev) => {
+                                                            const next = prev.includes(d.id)
+                                                                ? prev.filter((x) => x !== d.id)
+                                                                : [...prev, d.id];
 
-                      // dirty calc against last-saved selection
-                      const isDirty =
-                        next.length !== savedDivisionIds.length ||
-                        next.some((x) => !savedDivisionIds.includes(x));
+                                                            // dirty calc against last-saved selection
+                                                            const isDirty =
+                                                                next.length !== savedDivisionIds.length ||
+                                                                next.some((x) => !savedDivisionIds.includes(x));
 
-                      setDivisionsDirty(isDirty);
-                      return next;
-                    });
-                  }}
-                />
-                <span>{d.name}</span>
-              </label>
-            );
-          })}
-      </div>
+                                                            setDivisionsDirty(isDirty);
+                                                            return next;
+                                                        });
+                                                    }}
+                                                />
+                                                <span>{d.name}</span>
+                                            </label>
+                                        );
+                                    })}
+                            </div>
 
-      <div className="modal-actions" style={{ marginTop: 16 }}>
-        <button
-          type="button"
-          className="btn btn--ghost"
-          onClick={() => {
-            // revert modal changes
-            setSelectedDivisionIds(savedDivisionIds);
-            setDivisionsDirty(false);
-            setShowDivisionModal(false);
-          }}
-        >
-          Cancel
-        </button>
+                            <div className="modal-actions" style={{ marginTop: 16 }}>
+                                <button
+                                    type="button"
+                                    className="btn btn--ghost"
+                                    onClick={() => {
+                                        // revert modal changes
+                                        setSelectedDivisionIds(savedDivisionIds);
+                                        setDivisionsDirty(false);
+                                        setShowDivisionModal(false);
+                                    }}
+                                >
+                                    Cancel
+                                </button>
 
-        <button
-          type="button"
-          className="btn primary"
-          onClick={() => setShowDivisionModal(false)}
-        >
-          Done
-        </button>
-      </div>
-    </div>
-  </div>
-)}
+                                <button
+                                    type="button"
+                                    className="btn primary"
+                                    onClick={() => setShowDivisionModal(false)}
+                                >
+                                    Done
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                {isQrOpen && registrationUrl && (
+                    <div
+                        className="modal-backdrop"
+                        onMouseDown={(e) => {
+                            // close if user clicks the backdrop (not the card)
+                            if (e.target === e.currentTarget) closeQrModal();
+                        }}
+                    >
+                        <div className="modal card" style={{ maxWidth: 560 }}>
+                            <div
+                                style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    gap: 12,
+                                }}
+                            >
+                                <div>
+                                    <h3 style={{ margin: 0 }}>Late Registration QR</h3>
+                                    <div className="muted" style={{ marginTop: 6 }}>
+                                        <div>
+                                            <strong>Club:</strong> {displayedClubName}
+                                        </div>
+                                        <div>
+                                            <strong>Competition:</strong> {competition.name}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <button
+                                    type="button"
+                                    className="btn btn--ghost btn--sm"
+                                    onClick={closeQrModal}
+                                    aria-label="Close"
+                                    title="Close"
+                                >
+                                    ×
+                                </button>
+                            </div>
+
+                            <p className="muted" style={{ marginTop: 8 }}>
+                                Scan this with a phone camera to open registration.
+                            </p>
+
+                            <div
+                                style={{
+                                    display: "grid",
+                                    placeItems: "center",
+                                    padding: "12px 0",
+                                }}
+                            >
+                                <QRCodeSVG value={registrationUrl} size={240} />
+                            </div>
+
+                            <div
+                                style={{
+                                    wordBreak: "break-all",
+                                    fontSize: 12,
+                                    padding: 10,
+                                    borderRadius: 8,
+                                    background: "rgba(0,0,0,0.04)",
+                                }}
+                            >
+                                {registrationUrl}
+                            </div>
+
+                            <div className="modal-actions" style={{ marginTop: 16 }}>
+                                <button
+                                    type="button"
+                                    className="btn"
+                                    onClick={handleCopyRegistrationUrl}
+                                >
+                                    {copyStatus === "copied"
+                                        ? "Copied!"
+                                        : copyStatus === "error"
+                                            ? "Copy failed"
+                                            : "Copy link"}
+                                </button>
+
+                                <button
+                                    type="button"
+                                    className="btn"
+                                    onClick={handlePrintLateRegistration}
+                                >
+                                    Print (A4)
+                                </button>
+
+                                <button
+                                    type="button"
+                                    className="btn btn--ghost"
+                                    onClick={closeQrModal}
+                                >
+                                    Close
+                                </button>
+                            </div>
+
+                            {copyStatus === "error" && (
+                                <p className="muted" style={{ marginTop: 8 }}>
+                                    Couldn’t copy automatically — select the URL above and copy it.
+                                </p>
+                            )}
+
+                            <div id="late-registration-print" className="late-registration-print">
+                                <div className="late-registration-print__content">
+                                    <div className="late-registration-print__title">
+                                        LATE REGISTRATIONS
+                                    </div>
+                                    <div className="late-registration-print__club">
+                                        {displayedClubName}
+                                    </div>
+                                    <div className="late-registration-print__competition">
+                                        {competition.name}
+                                    </div>
+                                    <div className="late-registration-print__instruction">
+                                        Scan to register (or type the link below)
+                                    </div>
+                                    <QRCodeSVG value={registrationUrl} size={360} />
+                                    <div className="late-registration-print__url">
+                                        {registrationUrl}
+                                    </div>
+                                    <div className="late-registration-print__footer">
+                                        Generated from Club Admin · {printTimestamp}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <style>
+                                {`
+#late-registration-print {
+    display: none;
+}
+
+.late-registration-print__content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    color: #000;
+    text-align: center;
+}
+
+.late-registration-print__title {
+    font-size: 32px;
+    font-weight: 800;
+    letter-spacing: 1px;
+}
+
+.late-registration-print__club {
+    font-size: 24px;
+    font-weight: 700;
+}
+
+.late-registration-print__competition {
+    font-size: 22px;
+    font-weight: 600;
+}
+
+.late-registration-print__instruction {
+    font-size: 16px;
+}
+
+.late-registration-print__url {
+    font-size: 14px;
+    word-break: break-all;
+    margin-top: 6px;
+}
+
+.late-registration-print__footer {
+    font-size: 11px;
+    color: #333;
+    margin-top: 6px;
+}
+
+@page {
+    size: A4 portrait;
+    margin: 10mm;
+}
+
+@media print {
+    body {
+        margin: 0;
+    }
+
+    body * {
+        visibility: hidden;
+    }
+
+    #late-registration-print,
+    #late-registration-print * {
+        visibility: visible;
+    }
+
+    #late-registration-print {
+        display: block;
+        position: fixed;
+        left: 0;
+        top: 0;
+        width: 210mm;
+        height: 297mm;
+        padding: 12mm;
+        box-sizing: border-box;
+        background: white;
+    }
+}
+                                `}
+                            </style>
+                        </div>
+                    </div>
+                )}
 
 
                 {showDeleteModal && (
@@ -1339,15 +1588,15 @@ export default function EditCompetition() {
                                     </div>
 
                                     <div className="division-actions">
-<button
-  type="button"
-  className="btn btn--sm"
-  disabled={hasResults}
-  title={hasResults ? "Divisions can't be changed after results exist." : "Edit divisions"}
-  onClick={() => setShowDivisionModal(true)}
->
-  Edit divisions
-</button>
+                                        <button
+                                            type="button"
+                                            className="btn btn--sm"
+                                            disabled={hasResults}
+                                            title={hasResults ? "Divisions can't be changed after results exist." : "Edit divisions"}
+                                            onClick={() => setShowDivisionModal(true)}
+                                        >
+                                            Edit divisions
+                                        </button>
 
                                     </div>
                                 </div>
@@ -1813,5 +2062,5 @@ export default function EditCompetition() {
                 </div>
             </section>
         </>
-    )
+    );
 }

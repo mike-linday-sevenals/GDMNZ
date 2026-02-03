@@ -7,12 +7,18 @@ import type {
     Competitor,
     FishJoined,
     Settings,
-    Species
+    Species,
+    JoinBoatPayload,
+    JoinBoatResult
 } from "@/types";
-import { DEFAULT_SETTINGS, DEFAULT_SPECIES, STORE_KEYS } from "@/utils";
+import { DEFAULT_SETTINGS, DEFAULT_SPECIES } from "@/utils";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
+// Add this re-export so callers can import the types from "@/services/api".
+export type { JoinBoatPayload, JoinBoatResult } from "@/types";
 
+export type BoatType = "Launch" | "Trailer" | "Charter";
+export type PersonCategory = "adult" | "junior" | "senior" | "";
 
 // ============================================================================
 // HELPERS (LOCAL FALLBACK)
@@ -47,132 +53,6 @@ function safeUrl(u?: string | null) {
     }
 }
 
-export async function fetchCompetitionFees(
-    organisationId: string,
-    competitionId: string
-) {
-    return await getCompetitionFees(organisationId, competitionId);
-}
-
-
-export type BoatType = "Launch" | "Trailer" | "Charter";
-
-
-
-// ============================================================================
-// COMPETITOR SAFETY CHECKS
-// ============================================================================
-
-export async function competitorHasResults(
-    competitorId: string
-): Promise<boolean> {
-    if (!client) return false;
-
-    const { data, error } = await client
-        .from("fish")
-        .select("id")
-        .eq("competitor_id", competitorId)
-        .limit(1);
-
-    if (error) throw error;
-
-    return (data?.length ?? 0) > 0;
-}
-
-// ============================================================================
-// DELETE COMPETITOR (SAFE)
-// ============================================================================
-
-export async function deleteCompetitorFromCompetition(
-    competitionId: string,
-    competitorId: string
-): Promise<{ blocked: boolean }> {
-    if (!client) throw new Error("Supabase not ready");
-
-    // 1️⃣ Check for fish results
-    const { data: fish } = await client
-        .from("fish")
-        .select("id")
-        .eq("competitor_id", competitorId)
-        .limit(1);
-
-    if (fish && fish.length > 0) {
-        return { blocked: true };
-    }
-
-    // 2️⃣ Delete competition link
-    await client
-        .from("competition_competitor")
-        .delete()
-        .eq("competition_id", competitionId)
-        .eq("competitor_id", competitorId);
-
-    // 3️⃣ Delete competitor
-    await client
-        .from("competitor")
-        .delete()
-        .eq("id", competitorId);
-
-    return { blocked: false };
-}
-
-
-// ============================================================================
-// MODES (comp_mode + prize_mode lookup tables)
-// ============================================================================
-
-export async function listCompModes() {
-    if (!client) return [];
-
-    const { data, error } = await client
-        .from("comp_mode")
-        .select("id, name")
-        .order("name");
-
-    if (error) throw error;
-    return data ?? [];
-}
-
-export async function listPrizeModes() {
-    if (!client) return [];
-
-    const { data, error } = await client
-        .from("prize_mode")
-        .select("id, name")
-        .order("name");
-
-    if (error) throw error;
-    return data ?? [];
-}
-
-// ============================================================================
-// Fish Types
-// ============================================================================
-
-export async function listFishTypes(): Promise<
-    { id: string; name: string }[]
-> {
-    if (!client) {
-        throw new Error("Supabase client not initialised");
-    }
-
-    const { data, error } = await client
-        .from("fish_type")
-        .select("fish_type_id, name")
-        .eq("is_active", true)
-        .order("name");
-
-    if (error) {
-        throw error;
-    }
-
-    return (data ?? []).map(row => ({
-        id: row.fish_type_id,
-        name: row.name,
-    }));
-}
-
-
 // ============================================================================
 // SUPABASE INITIALISATION
 // ============================================================================
@@ -192,8 +72,6 @@ if (!client) {
         "VITE_SUPABASE_URL=...\nVITE_SUPABASE_ANON_KEY=..."
     );
 }
-
-
 
 // ============================================================================
 // SETTINGS
@@ -248,7 +126,7 @@ export async function updateSettings(payload: Partial<Settings>) {
 
     const rowId = await getSettingsRowId(client);
 
-    const patch: any = {};
+    const patch: Record<string, any> = {};
     if ("earlyBirdCutoff" in payload) patch.early_bird_cutoff = payload.earlyBirdCutoff || null;
     if ("compMode" in payload) patch.comp_mode = payload.compMode;
     if ("showTime" in payload) patch.time_visible = payload.showTime;
@@ -281,6 +159,23 @@ export async function listSpecies(): Promise<Species[]> {
     return data as Species[];
 }
 
+export async function listFishTypes(): Promise<{ id: string; name: string }[]> {
+    if (!client) throw new Error("Supabase not ready");
+
+    const { data, error } = await client
+        .from("fish_type")
+        .select("fish_type_id, name")
+        .eq("is_active", true)
+        .order("name");
+
+    if (error) throw error;
+
+    return (data ?? []).map(row => ({
+        id: row.fish_type_id,
+        name: row.name,
+    }));
+}
+
 export type CompetitionSpeciesRow = {
     id: string;
     species: Species;
@@ -292,9 +187,7 @@ export async function listCompetitionSpecies(
 ): Promise<CompetitionSpeciesRow[]> {
     if (!client) throw new Error("Supabase not ready");
 
-    /* ------------------------------------------------------------------
-       1️⃣ Verify competition belongs to this organisation
-       ------------------------------------------------------------------ */
+    // 1️⃣ Verify competition belongs to this organisation
     const { data: link, error: linkErr } = await client
         .from("competition_organisation")
         .select("competition_id")
@@ -305,9 +198,7 @@ export async function listCompetitionSpecies(
     if (linkErr) throw linkErr;
     if (!link) return [];
 
-    /* ------------------------------------------------------------------
-       2️⃣ Load species for this competition
-       ------------------------------------------------------------------ */
+    // 2️⃣ Load species for this competition
     const { data, error } = await client
         .from("competition_species")
         .select(`
@@ -323,9 +214,7 @@ export async function listCompetitionSpecies(
 
     if (error) throw error;
 
-    /* ------------------------------------------------------------------
-       3️⃣ Normalise Supabase join shape
-       ------------------------------------------------------------------ */
+    // 3️⃣ Normalise Supabase join shape
     return (data ?? []).map((row: any) => ({
         id: row.id,
         species: Array.isArray(row.species)
@@ -334,11 +223,12 @@ export async function listCompetitionSpecies(
     }));
 }
 
-
+// ============================================================================
+// COMPETITIONS (ORG-SCOPED)
+// ============================================================================
 
 export async function listCompetitions(organisationId?: string) {
     if (!client) return [];
-
     if (!organisationId) return [];
 
     const { data, error } = await client
@@ -376,15 +266,11 @@ export async function listCompetitions(organisationId?: string) {
                 name: comp.name,
                 starts_at: comp.starts_at,
                 ends_at: comp.ends_at,
-
-                // 🔑 THIS IS WHAT THE UI NEEDS
                 competition_type_code: ct?.code ?? "mixed",
             };
         })
         .filter(Boolean);
 }
-
-
 
 export async function addCompetition(
     organisationId: string,
@@ -396,7 +282,6 @@ export async function addCompetition(
 ) {
     if (!client) throw new Error("Supabase not configured.");
 
-    // 1️⃣ Create the competition
     const { data: competition, error: compErr } = await client
         .from("competition")
         .insert({
@@ -409,7 +294,6 @@ export async function addCompetition(
 
     if (compErr) throw compErr;
 
-    // 2️⃣ Link competition to organisation
     const { error: linkErr } = await client
         .from("competition_organisation")
         .insert({
@@ -424,32 +308,27 @@ export async function addCompetition(
     return competition;
 }
 
-
-
 export async function getCompetition(
     organisationId: string | null,
     competitionId: string
 ): Promise<Competition> {
     if (!client) throw new Error("Supabase not ready");
-
-    if (!organisationId) {
-        throw new Error("Organisation ID is required");
-    }
+    if (!organisationId) throw new Error("Organisation ID is required");
 
     const { data, error } = await client
         .from("competition_organisation")
         .select(`
-      competition:competition_id (
-          id,
-          name,
-          starts_at,
-          ends_at,
-          briefing_required,
-          comp_mode: comp_mode_id ( id, name ),
-          prize_mode: prize_mode_id ( id, name )
-      )
-  `)
-
+            competition:competition_id (
+                id,
+                name,
+                starts_at,
+                ends_at,
+                public_results_slug,
+                briefing_required,
+                comp_mode: comp_mode_id ( id, name ),
+                prize_mode: prize_mode_id ( id, name )
+            )
+        `)
         .eq("organisation_id", organisationId)
         .eq("competition_id", competitionId)
         .maybeSingle();
@@ -476,21 +355,17 @@ export async function getCompetition(
         name: comp.name,
         starts_at: comp.starts_at,
         ends_at: comp.ends_at,
-
-        // ✅ REQUIRED by Competition type
+        public_results_slug: comp.public_results_slug ?? null,
         briefing_required: !!comp.briefing_required,
-
         comp_mode: compMode ?? null,
         prize_mode: prizeMode ?? null,
         comp_mode_id: compMode?.id ?? null,
         prize_mode_id: prizeMode?.id ?? null,
     };
-
 }
 
 // ============================================================================
 // PRIZES
-// - Backwards compatible with combined → split transition
 // ============================================================================
 
 export async function listPrizesForCompetition(
@@ -499,9 +374,6 @@ export async function listPrizesForCompetition(
 ) {
     if (!client) return [];
 
-    /* ------------------------------------------------------------------
-       1️⃣ Load competition to determine prize mode
-       ------------------------------------------------------------------ */
     const { data: compLink, error: compErr } = await client
         .from("competition_organisation")
         .select(`
@@ -517,7 +389,6 @@ export async function listPrizesForCompetition(
     if (compErr) throw compErr;
     if (!compLink || !compLink.competition) return [];
 
-    // 🔑 Normalise Supabase join shape
     const competition: any = Array.isArray(compLink.competition)
         ? compLink.competition[0]
         : compLink.competition;
@@ -527,9 +398,6 @@ export async function listPrizesForCompetition(
             ? competition.prize_mode[0]?.name ?? null
             : competition.prize_mode?.name ?? null;
 
-    /* ------------------------------------------------------------------
-       2️⃣ Load all active prizes for competition
-       ------------------------------------------------------------------ */
     const { data: prizes, error } = await client
         .from("prize")
         .select("*")
@@ -539,16 +407,10 @@ export async function listPrizesForCompetition(
     if (error) throw error;
     if (!prizes || prizes.length === 0) return [];
 
-    /* ------------------------------------------------------------------
-       3️⃣ If NOT split → return as-is
-       ------------------------------------------------------------------ */
     if (prizeMode !== "split") {
         return prizes;
     }
 
-    /* ------------------------------------------------------------------
-       4️⃣ Detect whether split prizes already exist
-       ------------------------------------------------------------------ */
     const hasSplitPrizes = prizes.some(
         (p: any) => p.for_category === "junior" || p.for_category === "adult"
     );
@@ -557,9 +419,6 @@ export async function listPrizesForCompetition(
         return prizes;
     }
 
-    /* ------------------------------------------------------------------
-       5️⃣ Fallback: duplicate combined prizes as junior + adult
-       ------------------------------------------------------------------ */
     const combined = prizes.filter(
         (p: any) => p.for_category === "combined"
     );
@@ -579,7 +438,9 @@ export async function listPrizesForCompetition(
     return [...junior, ...adult];
 }
 
-
+// ============================================================================
+// COMPETITION SPECIES
+// ============================================================================
 
 export async function saveCompetitionSpecies(
     organisationId: string,
@@ -621,8 +482,9 @@ export async function saveCompetitionSpecies(
     return data ?? [];
 }
 
-
-
+// ============================================================================
+// COMPETITION UPDATE
+// ============================================================================
 
 export async function updateCompetition(
     organisationId: string,
@@ -631,9 +493,6 @@ export async function updateCompetition(
 ) {
     if (!client) throw new Error("Supabase not ready");
 
-    /* ------------------------------------------------------------------
-       1️⃣ Verify competition belongs to this organisation
-       ------------------------------------------------------------------ */
     const { data: link, error: linkErr } = await client
         .from("competition_organisation")
         .select("id")
@@ -646,9 +505,6 @@ export async function updateCompetition(
         throw new Error("Competition does not belong to this organisation");
     }
 
-    /* ------------------------------------------------------------------
-       2️⃣ Update competition
-       ------------------------------------------------------------------ */
     const { data, error } = await client
         .from("competition")
         .update({
@@ -666,7 +522,6 @@ export async function updateCompetition(
     return data;
 }
 
-
 // ============================================================================
 // COMPETITION DAYS
 // ============================================================================
@@ -677,9 +532,6 @@ export async function listCompetitionDays(
 ) {
     if (!client) throw new Error("Supabase not ready");
 
-    /* ------------------------------------------------------------------
-       1️⃣ Verify competition belongs to this organisation
-       ------------------------------------------------------------------ */
     const { data: link, error: linkErr } = await client
         .from("competition_organisation")
         .select("id")
@@ -688,12 +540,9 @@ export async function listCompetitionDays(
         .maybeSingle();
 
     if (linkErr) throw linkErr;
-    if (!link) return []; // not this organisation → no data
+    if (!link) return [];
 
-    /* ------------------------------------------------------------------
-       2️⃣ Load competition days
-       ------------------------------------------------------------------ */
-    let { data, error } = await client
+    const { data, error } = await client
         .from("competition_day")
         .select("*")
         .eq("competition_id", competitionId)
@@ -701,9 +550,6 @@ export async function listCompetitionDays(
 
     if (error) throw error;
 
-    /* ------------------------------------------------------------------
-       3️⃣ Auto-create Day 1 if none exist
-       ------------------------------------------------------------------ */
     if (!data || data.length === 0) {
         const today = new Date().toISOString().slice(0, 10);
 
@@ -728,9 +574,6 @@ export async function listCompetitionDays(
     return data;
 }
 
-
-
-
 export async function updateCompetitionDay(dayId: string, patch: any) {
     if (!client) throw new Error("Supabase not ready");
 
@@ -748,7 +591,6 @@ export async function updateCompetitionDay(dayId: string, patch: any) {
 export async function addCompetitionDay(competitionId: string) {
     if (!client) throw new Error("Supabase not ready");
 
-    // Get existing days so we can avoid unique constraint errors
     const { data: existing } = await client
         .from("competition_day")
         .select("day_date")
@@ -758,7 +600,6 @@ export async function addCompetitionDay(competitionId: string) {
     let newDate = new Date().toISOString().slice(0, 10);
 
     if (existing && existing.length) {
-        // pick the last date + 1 day
         const last = existing[existing.length - 1].day_date;
         const dt = new Date(last);
         dt.setDate(dt.getDate() + 1);
@@ -782,7 +623,6 @@ export async function addCompetitionDay(competitionId: string) {
     return data;
 }
 
-
 export async function deleteCompetitionDay(id: string) {
     if (!client) return;
 
@@ -793,23 +633,17 @@ export async function deleteCompetitionDay(id: string) {
 
     if (error) throw error;
 }
+
 // ============================================================================
 // COMPETITION BRIEFING
-// - Exactly ONE briefing per competition
-// - Read NEVER creates rows
-// - Write ALWAYS uses UPSERT
 // ============================================================================
 
-/* ------------------------------------------------------------------
-   READ: Get competition briefing (read-only)
-   ------------------------------------------------------------------ */
 export async function getCompetitionBriefing(
     organisationId: string,
     competitionId: string
 ) {
     if (!client) throw new Error("Supabase not ready");
 
-    // 🔐 Verify competition belongs to this organisation
     const { data: link, error: linkErr } = await client
         .from("competition_organisation")
         .select("id")
@@ -820,7 +654,6 @@ export async function getCompetitionBriefing(
     if (linkErr) throw linkErr;
     if (!link) return null;
 
-    // 🔍 Fetch existing briefing (if any)
     const { data, error } = await client
         .from("competition_briefing")
         .select("*")
@@ -829,13 +662,9 @@ export async function getCompetitionBriefing(
 
     if (error && error.code !== "PGRST116") throw error;
 
-    // ✅ IMPORTANT: no insert here
     return data ?? null;
 }
 
-/* ------------------------------------------------------------------
-   WRITE: Upsert competition briefing (create or update)
-   ------------------------------------------------------------------ */
 export async function upsertCompetitionBriefing(
     organisationId: string,
     competitionId: string,
@@ -848,7 +677,6 @@ export async function upsertCompetitionBriefing(
 ) {
     if (!client) throw new Error("Supabase not ready");
 
-    // 🔐 Verify competition belongs to this organisation
     const { data: link, error: linkErr } = await client
         .from("competition_organisation")
         .select("id")
@@ -861,7 +689,6 @@ export async function upsertCompetitionBriefing(
         throw new Error("Competition does not belong to this organisation");
     }
 
-    // 💾 Atomic upsert (ONE row per competition)
     const { data, error } = await client
         .from("competition_briefing")
         .upsert(
@@ -878,7 +705,6 @@ export async function upsertCompetitionBriefing(
     return data;
 }
 
-
 // ============================================================================
 // COMPETITION FEES
 // ============================================================================
@@ -887,17 +713,11 @@ export async function getCompetitionFees(
     organisationId: string,
     competitionId: string
 ) {
-    /* ------------------------------------------------------------------
-       LOCAL FALLBACK
-       ------------------------------------------------------------------ */
     if (!client) {
         const list = loadLocal<any[]>("competition_fees", []);
         return list.find(x => x.competition_id === competitionId) || null;
     }
 
-    /* ------------------------------------------------------------------
-       1️⃣ Verify competition belongs to this organisation
-       ------------------------------------------------------------------ */
     const { data: link, error: linkErr } = await client
         .from("competition_organisation")
         .select("id")
@@ -908,21 +728,14 @@ export async function getCompetitionFees(
     if (linkErr) throw linkErr;
     if (!link) return null;
 
-    /* ------------------------------------------------------------------
-       2️⃣ Load existing fees (if any)
-       ------------------------------------------------------------------ */
-    let { data, error } = await client
+    const { data, error } = await client
         .from("competition_fees")
         .select("*")
         .eq("competition_id", competitionId)
         .maybeSingle();
 
-    // Ignore "no row" error
     if (error && error.code !== "PGRST116") throw error;
 
-    /* ------------------------------------------------------------------
-       3️⃣ Auto-create default fee row if missing
-       ------------------------------------------------------------------ */
     if (!data) {
         const defaultRow = {
             competition_id: competitionId,
@@ -949,14 +762,18 @@ export async function getCompetitionFees(
     return data;
 }
 
+export async function fetchCompetitionFees(
+    organisationId: string,
+    competitionId: string
+) {
+    return getCompetitionFees(organisationId, competitionId);
+}
+
 export async function upsertCompetitionFees(
     organisationId: string,
     competitionId: string,
     patch: any
 ) {
-    /* ------------------------------------------------------------------
-       LOCAL FALLBACK
-       ------------------------------------------------------------------ */
     if (!client) {
         const list = loadLocal<any[]>("competition_fees", []);
         const existing = list.find(x => x.competition_id === competitionId);
@@ -977,9 +794,6 @@ export async function upsertCompetitionFees(
         return newRow;
     }
 
-    /* ------------------------------------------------------------------
-       1️⃣ Verify competition belongs to this organisation
-       ------------------------------------------------------------------ */
     const { data: link, error: linkErr } = await client
         .from("competition_organisation")
         .select("id")
@@ -992,9 +806,6 @@ export async function upsertCompetitionFees(
         throw new Error("Competition does not belong to this organisation");
     }
 
-    /* ------------------------------------------------------------------
-       2️⃣ Update or insert fees
-       ------------------------------------------------------------------ */
     const { data: exists } = await client
         .from("competition_fees")
         .select("id")
@@ -1026,9 +837,9 @@ export async function upsertCompetitionFees(
     return data;
 }
 
-
-
-
+// ============================================================================
+// COMPETITORS (LIST)
+// ============================================================================
 
 export async function listCompetitorsForCompetition(
     competitionId: string
@@ -1073,9 +884,6 @@ export async function listCompetitorsForCompetition(
     return data ?? [];
 }
 
-
-
-
 // ============================================================================
 // COMPETITION RESULTS
 // ============================================================================
@@ -1099,10 +907,10 @@ export async function addCompetitionResult(payload: {
     if (error) throw error;
     return data;
 }
+
 export async function listCompetitionResults(competitionId: string) {
     if (!client) throw new Error("Supabase not configured");
 
-    // Manually join species + competitor without FK metadata
     const { data, error } = await client
         .from("competition_results")
         .select(`
@@ -1121,7 +929,6 @@ export async function listCompetitionResults(competitionId: string) {
 
     if (!data || data.length === 0) return [];
 
-    // Fetch competitors + species into maps
     const cIds = [...new Set(data.map(r => r.competitor_id))];
     const sIds = [...new Set(data.map(r => r.species_id))];
 
@@ -1135,8 +942,8 @@ export async function listCompetitionResults(competitionId: string) {
         .select("id, name")
         .in("id", sIds);
 
-    const compMap = new Map(compRows?.map(c => [c.id, c]));
-    const spMap = new Map(spRows?.map(s => [s.id, s]));
+    const compMap = new Map((compRows ?? []).map(c => [c.id, c]));
+    const spMap = new Map((spRows ?? []).map(s => [s.id, s]));
 
     return data.map(row => ({
         ...row,
@@ -1144,11 +951,10 @@ export async function listCompetitionResults(competitionId: string) {
         species: spMap.get(row.species_id) || null
     }));
 }
+
 export async function listFishJoinedForCompetition(
     competitionId: string
 ): Promise<FishJoined[]> {
-
-    // 🔑 NEVER throw — always return an array
     if (!client) {
         console.warn("[API] Supabase not configured — returning empty results");
         return [];
@@ -1191,8 +997,8 @@ export async function listFishJoinedForCompetition(
             .select("id, name")
             .in("id", speciesIds);
 
-        const compMap = new Map(compRows?.map(c => [c.id, c]));
-        const spMap = new Map(spRows?.map(s => [s.id, s]));
+        const compMap = new Map((compRows ?? []).map(c => [c.id, c]));
+        const spMap = new Map((spRows ?? []).map(s => [s.id, s]));
 
         return data.map(row => ({
             id: row.id,
@@ -1208,6 +1014,7 @@ export async function listFishJoinedForCompetition(
         return [];
     }
 }
+
 // ============================================================================
 // SPONSORS
 // ============================================================================
@@ -1279,7 +1086,7 @@ export async function updateSponsor(
 ): Promise<Sponsor> {
     if (!client) throw new Error("Supabase not configured");
 
-    const update: any = {};
+    const update: Record<string, any> = {};
 
     if (patch.name !== undefined) update.name = patch.name.trim();
     if (patch.logo_url !== undefined) update.logo_url = patch.logo_url;
@@ -1312,7 +1119,7 @@ export async function deleteSponsor(id: string): Promise<void> {
 }
 
 // ============================================================================
-// BOATS — bulk update helpers (FIXED: boat_number lives on competitor)
+// BOATS — BULK UPDATE HELPERS
 // ============================================================================
 
 export async function updateBoatForCompetition(
@@ -1325,7 +1132,6 @@ export async function updateBoatForCompetition(
 ): Promise<void> {
     if (!client) throw new Error("Supabase not ready");
 
-    // 1. Get all competitor IDs for this competition
     const { data: links, error: linkErr } = await client
         .from("competition_competitor")
         .select("competitor_id")
@@ -1336,21 +1142,22 @@ export async function updateBoatForCompetition(
 
     const competitorIds = links.map(l => l.competitor_id);
 
-    // 2. Update competitors ON THIS BOAT (boat_number is on competitor)
     const { error: updateErr } = await client
         .from("competitor")
         .update({
             boat: patch.boat.trim(),
             ...(patch.boat_type ? { boat_type: patch.boat_type } : {}),
         })
-        .eq("boat_number", boatNumber)   // ✅ CORRECT COLUMN
-        .in("id", competitorIds);        // ✅ SCOPE TO COMPETITION
+        .eq("boat_number", boatNumber)
+        .in("id", competitorIds);
 
     if (updateErr) throw updateErr;
 }
 
+// ============================================================================
+// COMPETITORS (CRUD)
+// ============================================================================
 
-// ============================================================================ // COMPETITORS // ============================================================================
 export async function addCompetitor(payload: {
     full_name: string;
     category: "adult" | "junior";
@@ -1358,7 +1165,7 @@ export async function addCompetitor(payload: {
     boat: string;
     membership_no: string;
     boat_type?: "Launch" | "Trailer" | "Charter";
-    registration_date?: string; // 👈 NEW (optional)
+    registration_date?: string;
 }): Promise<{ id: string }> {
     if (!client) throw new Error("Supabase not ready");
 
@@ -1381,7 +1188,6 @@ export async function addCompetitor(payload: {
     if (error) throw error;
     return data;
 }
-
 
 export async function addCompetitorToCompetition(
     competitionId: string,
@@ -1406,12 +1212,12 @@ export async function updateCompetitor(
         category: "adult" | "junior";
         paid_on: string | null;
         membership_no: string;
-        registration_date: string; // 👈 NEW
+        registration_date: string;
     }>
 ) {
     if (!client) throw new Error("Supabase not ready");
 
-    const update: any = {};
+    const update: Record<string, any> = {};
 
     if (patch.full_name !== undefined)
         update.full_name = patch.full_name.trim();
@@ -1439,11 +1245,8 @@ export async function updateCompetitor(
     return data;
 }
 
-
-
-
 // ============================================================================
-// PUBLIC — competitions (no org scope)
+// PUBLIC — COMPETITIONS & ORGS
 // ============================================================================
 
 export async function listPublicCompetitions() {
@@ -1458,10 +1261,6 @@ export async function listPublicCompetitions() {
     return data || [];
 }
 
-// ============================================================================
-// PUBLIC — organisations (clubs)
-// ============================================================================
-
 export async function listPublicOrganisations() {
     if (!client) return [];
 
@@ -1475,7 +1274,7 @@ export async function listPublicOrganisations() {
 }
 
 // ============================================================================
-// PUBLIC — competition lookup by public slug
+// PUBLIC — COMPETITION LOOKUP
 // ============================================================================
 
 export type PublicCompetition = {
@@ -1523,6 +1322,101 @@ export async function getCompetitionByPublicSlug(
     };
 }
 
+export async function getCompetitionBySlug(
+    slug: string
+): Promise<{ id: string; name: string } | null> {
+    if (!client) throw new Error("Supabase not ready");
+
+    const { data, error } = await client
+        .from("competition")
+        .select("id, name")
+        .eq("public_results_slug", slug)
+        .maybeSingle();
+
+    if (error) throw error;
+    return data ?? null;
+}
+
+// ============================================================================
+// RPC: REGISTER / JOIN BOAT
+// ============================================================================
+
+export type RegisterBoatPayload = {
+    competition_id: string;
+    boat_name: string;
+    boat_type?: BoatType | null;
+    join_code?: string | null;
+    skipper: {
+        full_name: string;
+        membership_no?: string | null;
+        email?: string | null;
+        phone?: string | null;
+        category: PersonCategory;
+    };
+    team: {
+        full_name: string;
+        membership_no?: string | null;
+        email?: string | null;
+        phone?: string | null;
+        category: PersonCategory;
+    }[];
+};
+
+export type RegisterBoatResult = {
+    boat_number: string;
+    anglers: {
+        competitor_id: string;
+        full_name: string;
+        angler_number: string;
+    }[];
+};
+
+export async function registerBoatWithTeam(
+    payload: RegisterBoatPayload
+): Promise<RegisterBoatResult> {
+    if (!client) throw new Error("Supabase not ready");
+
+    const rpcPayload = {
+        p_competition_id: payload.competition_id,
+        p_boat_name: payload.boat_name,
+        p_boat_type: payload.boat_type ?? null,
+        p_join_code: payload.join_code ?? null,
+        p_skipper: payload.skipper,
+        p_team: payload.team ?? [],
+    };
+
+    console.debug("[API] register_boat_with_team payload", rpcPayload);
+
+    const { data, error } = await client.rpc("register_boat_with_team", rpcPayload);
+
+    if (error) throw error;
+    if (!data) throw new Error("No data returned from register_boat_with_team");
+
+    return data as RegisterBoatResult;
+}
+
+export async function joinBoat(
+    payload: JoinBoatPayload
+): Promise<JoinBoatResult> {
+    if (!client) throw new Error("Supabase not ready");
+
+    const rpcPayload = {
+        p_competition_id: payload.competition_id,
+        p_boat_number: payload.boat_number,
+        p_boat_name: payload.boat_name ?? null,
+        p_join_code: payload.join_code ?? null,
+        p_member: payload.member,
+    };
+
+    console.debug("[API] join_boat payload", rpcPayload);
+
+    const { data, error } = await client.rpc("join_boat", rpcPayload);
+
+    if (error) throw error;
+    if (!data) throw new Error("No data returned from join_boat");
+
+    return data as JoinBoatResult;
+}
 
 // ============================================================================
 // END OF FILE

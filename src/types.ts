@@ -115,6 +115,9 @@ export interface Competition {
     competition_type?: CompetitionType | null;
     comp_mode?: CompMode | null;
     prize_mode?: PrizeMode | null;
+
+    // Public slug (registration/results)
+    public_results_slug?: string | null;
 }
 
 // ================================================================
@@ -206,3 +209,62 @@ export interface CompetitionFees {
 
     extra?: any;
 }
+
+// ================================================================
+// BOAT / TEAM REGISTRATION (RPC CONTRACTS)
+// ================================================================
+
+export type PersonCategory = "adult" | "junior" | "senior" | "";
+export type BoatType = "Launch" | "Trailer" | "Charter";
+
+export type RegisterBoatPayload = {
+    competition_id: string;
+    boat_name: string;
+    boat_type?: BoatType | null;
+    join_code?: string | null;
+    skipper: {
+        full_name: string;
+        membership_no?: string | null;
+        email?: string | null;
+        phone?: string | null;
+        category: PersonCategory;
+    };
+    team: {
+        full_name: string;
+        membership_no?: string | null;
+        email?: string | null;
+        phone?: string | null;
+        category: PersonCategory;
+    }[];
+};
+
+export type RegisterBoatResult = {
+    boat_number: string;
+    anglers: {
+        competitor_id: string;
+        full_name: string;
+        angler_number: string;
+    }[];
+};
+
+export type JoinBoatPayload = {
+    competition_id: string;
+    boat_number: string;
+    boat_name?: string | null;
+    join_code?: string | null;
+    member: {
+        full_name: string;
+        membership_no?: string | null;
+        email?: string | null;
+        phone?: string | null;
+        category: PersonCategory;
+    };
+};
+
+export type JoinBoatResult = {
+    boat_number: string;
+    angler_number: string;
+    competitor_id: string;
+    boat_name: string | null;
+    [key: string]: any;
+};

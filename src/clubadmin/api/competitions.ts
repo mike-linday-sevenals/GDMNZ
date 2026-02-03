@@ -5,12 +5,17 @@
 // Club-admin scoped Competition API
 // ============================================================================
 
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Competition, CompetitionDay, Species } from "@/types";
+import { client as sharedClient } from "@/services/api";
+
+// Re-export / preserve name for any existing imports that use `{ client }` from this module
+export const client: SupabaseClient | null = (sharedClient as any) ?? null;
 
 // ============================================================================
 // LOCAL API TYPES
 // ============================================================================
+
 export type CompetitionStatus = "not_started" | "active" | "completed";
 
 export type CompetitionListItem = {
@@ -18,7 +23,7 @@ export type CompetitionListItem = {
     name: string;
     starts_at: string;
     ends_at: string;
-    status: CompetitionStatus; // ✅ add
+    status: CompetitionStatus;
 };
 
 export type CompetitionTypeRow = {
@@ -43,29 +48,6 @@ export type CompetitionSpecies = {
     species_id: number;
 };
 
-
-// ============================================================================
-// SUPABASE INIT
-// ============================================================================
-
-const rawUrl = (import.meta as any).env?.VITE_SUPABASE_URL;
-const rawKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
-
-function safeUrl(u?: string | null) {
-    if (!u || typeof u !== "string") return null;
-    try {
-        return new URL(u.trim()).toString();
-    } catch {
-        return null;
-    }
-}
-
-const url = safeUrl(rawUrl);
-const key = rawKey?.trim() || null;
-
-export const client: SupabaseClient | null =
-    url && key ? createClient(url, key) : null;
-
 // ============================================================================
 // HELPERS
 // ============================================================================
@@ -79,10 +61,15 @@ function slugify(input: string): string {
         .replace(/-+/g, "-");
 }
 
-async function getOrganisationClubCode(organisationId: string): Promise<string> {
+function requireClient(): SupabaseClient {
     if (!client) throw new Error("Supabase not ready");
+    return client;
+}
 
-    const { data, error } = await client
+async function getOrganisationClubCode(organisationId: string): Promise<string> {
+    const sb = requireClient();
+
+    const { data, error } = await sb
         .from("organisation")
         .select("club_code")
         .eq("organisation_id", organisationId)
@@ -97,9 +84,9 @@ async function getOrganisationClubCode(organisationId: string): Promise<string> 
 export async function canDeleteCompetition(
     competitionId: string
 ): Promise<boolean> {
-    if (!client) throw new Error("Supabase not ready");
+    const sb = requireClient();
 
-    const { count, error } = await client
+    const { count, error } = await sb
         .from("competition_competitor")
         .select("*", { count: "exact", head: true })
         .eq("competition_id", competitionId);
@@ -123,7 +110,6 @@ export async function competitionHasResults(
     if (error) throw error;
     return !!data?.length;
 }
-
 
 // ============================================================================
 // COMPETITIONS
@@ -166,7 +152,6 @@ export async function listCompetitions(
     });
 }
 
-
 export async function addCompetition(
     organisationId: string,
     payload: {
@@ -179,12 +164,12 @@ export async function addCompetition(
         briefing_required: boolean;
     }
 ) {
-    if (!client) throw new Error("Supabase not configured");
+    const sb = requireClient();
 
     const clubCode = await getOrganisationClubCode(organisationId);
     const slug = `${clubCode}-${slugify(payload.name)}`;
 
-    const { data: competition, error } = await client
+    const { data: competition, error } = await sb
         .from("competition")
         .insert({
             ...payload,
@@ -195,7 +180,7 @@ export async function addCompetition(
 
     if (error) throw error;
 
-    await client.from("competition_organisation").insert({
+    await sb.from("competition_organisation").insert({
         competition_id: competition.id,
         organisation_id: organisationId,
         is_primary: true,
@@ -204,12 +189,13 @@ export async function addCompetition(
 
     return competition;
 }
+
 export async function listCompetitionSpecies(
     competitionId: string
 ): Promise<CompetitionSpecies[]> {
-    if (!client) throw new Error("Supabase not ready");
+    const sb = requireClient();
 
-    const { data, error } = await client
+    const { data, error } = await sb
         .from("competition_species")
         .select("id, competition_id, species_id")
         .eq("competition_id", competitionId)
@@ -219,19 +205,13 @@ export async function listCompetitionSpecies(
     return data ?? [];
 }
 
-
-
-
-
-
-
 export async function getCompetition(
     organisationId: string,
     competitionId: string
 ): Promise<Competition> {
-    if (!client) throw new Error("Supabase not ready");
+    const sb = requireClient();
 
-    const { data, error } = await client
+    const { data, error } = await sb
         .from("competition_organisation")
         .select(`
             competition:competition_id (
@@ -239,6 +219,7 @@ export async function getCompetition(
                 name,
                 starts_at,
                 ends_at,
+                public_results_slug,
                 briefing_required,
                 competition_type:competition_type_id ( id, code, name, description ),
                 comp_mode:comp_mode_id ( id, name ),
@@ -260,9 +241,7 @@ export async function getCompetition(
         ? c.competition_type[0]
         : c.competition_type;
 
-    const compMode = Array.isArray(c.comp_mode)
-        ? c.comp_mode[0]
-        : c.comp_mode;
+    const compMode = Array.isArray(c.comp_mode) ? c.comp_mode[0] : c.comp_mode;
 
     const prizeMode = Array.isArray(c.prize_mode)
         ? c.prize_mode[0]
@@ -273,8 +252,8 @@ export async function getCompetition(
         name: c.name,
         starts_at: c.starts_at,
         ends_at: c.ends_at,
-
-        briefing_required: c.briefing_required ?? false, 
+        public_results_slug: c.public_results_slug ?? null,
+        briefing_required: c.briefing_required ?? false,
 
         competition_type: competitionType ?? null,
         comp_mode: compMode ?? null,
@@ -291,9 +270,9 @@ export async function updateCompetition(
     competitionId: string,
     patch: Partial<Competition>
 ) {
-    if (!client) throw new Error("Supabase not ready");
+    const sb = requireClient();
 
-    const { error } = await client
+    const { error } = await sb
         .from("competition")
         .update({
             name: patch.name,
@@ -309,13 +288,11 @@ export async function updateCompetition(
     if (error) throw error;
 }
 
-export async function deleteCompetition(
-    competitionId: string
-) {
-    if (!client) throw new Error("Supabase not ready");
+export async function deleteCompetition(competitionId: string) {
+    const sb = requireClient();
 
     // HARD SAFETY CHECK
-    const { count } = await client
+    const { count } = await sb
         .from("competition_competitor")
         .select("*", { count: "exact", head: true })
         .eq("competition_id", competitionId);
@@ -324,16 +301,30 @@ export async function deleteCompetition(
         throw new Error("Competition has registrations and cannot be deleted");
     }
 
-    await client.from("competition_day").delete().eq("competition_id", competitionId);
-    await client.from("competition_species").delete().eq("competition_id", competitionId);
-    await client.from("competition_division").delete().eq("competition_id", competitionId);
-    await client.from("competition_briefing").delete().eq("competition_id", competitionId);
-    await client.from("competition_fees").delete().eq("competition_id", competitionId);
-    await client.from("prize").delete().eq("competition_id", competitionId);
-    await client.from("competition_organisation").delete().eq("competition_id", competitionId);
-    await client.from("competition").delete().eq("id", competitionId);
+    await sb.from("competition_day").delete().eq("competition_id", competitionId);
+    await sb
+        .from("competition_species")
+        .delete()
+        .eq("competition_id", competitionId);
+    await sb
+        .from("competition_division")
+        .delete()
+        .eq("competition_id", competitionId);
+    await sb
+        .from("competition_briefing")
+        .delete()
+        .eq("competition_id", competitionId);
+    await sb
+        .from("competition_fees")
+        .delete()
+        .eq("competition_id", competitionId);
+    await sb.from("prize").delete().eq("competition_id", competitionId);
+    await sb
+        .from("competition_organisation")
+        .delete()
+        .eq("competition_id", competitionId);
+    await sb.from("competition").delete().eq("id", competitionId);
 }
-
 
 // ============================================================================
 // LOOKUPS
@@ -371,20 +362,16 @@ export async function listPrizeModes(): Promise<PrizeModeRow[]> {
 
 // ============================================================================
 // COMPETITION DAYS
-// - Preserves legacy fields
-// - Guarantees at least one day
-// - Supports sort_order + cutoff times
-// - Safe against duplicate inserts / reloads
 // ============================================================================
 
 export async function listCompetitionDays(
     organisationId: string,
     competitionId: string
 ): Promise<CompetitionDay[]> {
-    if (!client) throw new Error("Supabase not ready");
+    const sb = requireClient();
 
     // 1️⃣ Load existing days first
-    const { data, error } = await client
+    const { data, error } = await sb
         .from("competition_day")
         .select("*")
         .eq("competition_id", competitionId)
@@ -401,25 +388,23 @@ export async function listCompetitionDays(
     // 3️⃣ Otherwise, attempt to create Day 1
     const today = new Date().toISOString().slice(0, 10);
 
-    const { error: insertErr } = await client
-        .from("competition_day")
-        .insert({
-            competition_id: competitionId,
-            day_date: today,
-            sort_order: 1,
-            fishing_start_type: "None",
-            fishing_end_type: "None",
-            weighin_type: "None",
-            overnight_allowed: false,
-        });
+    const { error: insertErr } = await sb.from("competition_day").insert({
+        competition_id: competitionId,
+        day_date: today,
+        sort_order: 1,
+        fishing_start_type: "None",
+        fishing_end_type: "None",
+        weighin_type: "None",
+        overnight_allowed: false,
+    });
 
     // ⛑ Ignore duplicate key errors (race / reload safety)
-    if (insertErr && insertErr.code !== "23505") {
+    if (insertErr && (insertErr as any).code !== "23505") {
         throw insertErr;
     }
 
     // 4️⃣ Re-fetch after insert (or if it already existed)
-    const { data: retry, error: retryErr } = await client
+    const { data: retry, error: retryErr } = await sb
         .from("competition_day")
         .select("*")
         .eq("competition_id", competitionId)
@@ -434,9 +419,9 @@ export async function listCompetitionDays(
 export async function addCompetitionDay(
     competitionId: string
 ): Promise<CompetitionDay> {
-    if (!client) throw new Error("Supabase not ready");
+    const sb = requireClient();
 
-    const { data: existing } = await client
+    const { data: existing } = await sb
         .from("competition_day")
         .select("day_date, sort_order")
         .eq("competition_id", competitionId)
@@ -453,7 +438,7 @@ export async function addCompetitionDay(
         sortOrder = (last.sort_order ?? existing.length) + 1;
     }
 
-    const { data, error } = await client
+    const { data, error } = await sb
         .from("competition_day")
         .insert({
             competition_id: competitionId,
@@ -475,9 +460,9 @@ export async function updateCompetitionDay(
     dayId: string,
     patch: Partial<CompetitionDay>
 ) {
-    if (!client) throw new Error("Supabase not ready");
+    const sb = requireClient();
 
-    const { error } = await client
+    const { error } = await sb
         .from("competition_day")
         .update({
             day_date: patch.day_date,
@@ -501,10 +486,7 @@ export async function updateCompetitionDay(
 export async function deleteCompetitionDay(dayId: string) {
     if (!client) return;
 
-    const { error } = await client
-        .from("competition_day")
-        .delete()
-        .eq("id", dayId);
+    const { error } = await client.from("competition_day").delete().eq("id", dayId);
 
     if (error) throw error;
 }
@@ -532,6 +514,7 @@ export async function listSpecies(): Promise<Species[]> {
         .order("name");
 
     if (error) throw error;
+
     return (data ?? []).map((row: any) => ({
         id: row.id,
         name: row.name,
@@ -548,23 +531,16 @@ export async function listSpecies(): Promise<Species[]> {
                 name: row.species_category?.name,
             },
     }));
-
 }
-
-
-
 
 export async function saveCompetitionSpecies(
     organisationId: string,
     competitionId: string,
     speciesIds: number[]
 ) {
-    if (!client) throw new Error("Supabase not ready");
+    const sb = requireClient();
 
-    await client
-        .from("competition_species")
-        .delete()
-        .eq("competition_id", competitionId);
+    await sb.from("competition_species").delete().eq("competition_id", competitionId);
 
     if (!speciesIds.length) return [];
 
@@ -573,7 +549,7 @@ export async function saveCompetitionSpecies(
         species_id: id,
     }));
 
-    const { data, error } = await client
+    const { data, error } = await sb
         .from("competition_species")
         .insert(rows)
         .select();
@@ -590,9 +566,9 @@ export async function getCompetitionBriefing(
     organisationId: string,
     competitionId: string
 ) {
-    if (!client) throw new Error("Supabase not ready");
+    const sb = requireClient();
 
-    const { data: link } = await client
+    const { data: link } = await sb
         .from("competition_organisation")
         .select("id")
         .eq("organisation_id", organisationId)
@@ -601,13 +577,13 @@ export async function getCompetitionBriefing(
 
     if (!link) return null;
 
-    const { data, error } = await client
+    const { data, error } = await sb
         .from("competition_briefing")
         .select("*")
         .eq("competition_id", competitionId)
         .maybeSingle();
 
-    if (error && error.code !== "PGRST116") throw error;
+    if (error && (error as any).code !== "PGRST116") throw error;
     return data ?? null;
 }
 
@@ -621,9 +597,9 @@ export async function upsertCompetitionBriefing(
         notes?: string | null;
     }
 ) {
-    if (!client) throw new Error("Supabase not ready");
+    const sb = requireClient();
 
-    const { data: link } = await client
+    const { data: link } = await sb
         .from("competition_organisation")
         .select("id")
         .eq("organisation_id", organisationId)
@@ -634,7 +610,7 @@ export async function upsertCompetitionBriefing(
         throw new Error("Competition does not belong to this organisation");
     }
 
-    const { data, error } = await client
+    const { data, error } = await sb
         .from("competition_briefing")
         .upsert(
             {
@@ -649,6 +625,7 @@ export async function upsertCompetitionBriefing(
     if (error) throw error;
     return data;
 }
+
 // ============================================================================
 // COMPETITION FEES
 // ============================================================================
@@ -670,9 +647,9 @@ export async function getCompetitionFees(
     organisationId: string,
     competitionId: string
 ): Promise<CompetitionFees | null> {
-    if (!client) throw new Error("Supabase not ready");
+    const sb = requireClient();
 
-    const { data: link } = await client
+    const { data: link } = await sb
         .from("competition_organisation")
         .select("id")
         .eq("organisation_id", organisationId)
@@ -681,20 +658,18 @@ export async function getCompetitionFees(
 
     if (!link) return null;
 
-    let { data, error } = await client
+    let { data, error } = await sb
         .from("competition_fees")
         .select("*")
         .eq("competition_id", competitionId)
         .maybeSingle();
 
-    if (error && error.code !== "PGRST116") throw error;
+    if (error && (error as any).code !== "PGRST116") throw error;
 
     if (!data) {
-        const { data: created, error: insertErr } = await client
+        const { data: created, error: insertErr } = await sb
             .from("competition_fees")
-            .insert({
-                competition_id: competitionId,
-            })
+            .insert({ competition_id: competitionId })
             .select()
             .single();
 
@@ -710,9 +685,9 @@ export async function upsertCompetitionFees(
     competitionId: string,
     patch: Partial<CompetitionFees>
 ) {
-    if (!client) throw new Error("Supabase not ready");
+    const sb = requireClient();
 
-    const { data: link } = await client
+    const { data: link } = await sb
         .from("competition_organisation")
         .select("id")
         .eq("organisation_id", organisationId)
@@ -721,7 +696,7 @@ export async function upsertCompetitionFees(
 
     if (!link) throw new Error("Competition does not belong to organisation");
 
-    const { data, error } = await client
+    const { data, error } = await sb
         .from("competition_fees")
         .upsert(
             {
@@ -745,9 +720,9 @@ export async function listPrizesForCompetition(
     organisationId: string,
     competitionId: string
 ) {
-    if (!client) throw new Error("Supabase not ready");
+    const sb = requireClient();
 
-    const { data, error } = await client
+    const { data, error } = await sb
         .from("prize")
         .select(`
             id,
