@@ -1985,3 +1985,124 @@ table td:nth-child(8) {
     flex: 1 1 auto;
   }
 }
+
+/* =========================================================================
+   12) Late Registration Print (A4)
+   ========================================================================= */
+#late-registration-print {
+    display: none;
+}
+
+.late-registration-print__content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    color: #000;
+    text-align: center;
+}
+
+.late-registration-print__title {
+    font-size: 32px;
+    font-weight: 800;
+    letter-spacing: 1px;
+}
+
+.late-registration-print__club {
+    font-size: 24px;
+    font-weight: 700;
+}
+
+.late-registration-print__competition {
+    font-size: 22px;
+    font-weight: 600;
+}
+
+.late-registration-print__instruction {
+    font-size: 16px;
+}
+
+.late-registration-print__url {
+    font-size: 14px;
+    word-break: break-all;
+    margin-top: 6px;
+}
+
+.late-registration-print__footer {
+    font-size: 11px;
+    color: #333;
+    margin-top: 6px;
+}
+
+@page {
+    size: A4 portrait;
+    margin: 10mm;
+}
+
+@media print {
+    body {
+        margin: 0;
+        background: #fff;
+    }
+
+        /* hide everything */
+        body * {
+            visibility: hidden;
+        }
+
+    /* show only print block */
+    #late-registration-print,
+    #late-registration-print * {
+        visibility: visible;
+    }
+
+    #late-registration-print {
+        display: block;
+        position: fixed;
+        left: 0;
+        top: 0;
+        width: 210mm;
+        height: 297mm;
+        padding: 12mm;
+        box-sizing: border-box;
+        background: white;
+    }
+}
+
+.edit-footer-divider {
+    border: 0;
+    border-top: 1px solid var(--border);
+    margin: 18px 0;
+}
+
+.pill-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.empty-state {
+    padding: 12px;
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+    background: #fff;
+}
+
+.info-inline {
+    padding: 10px 12px;
+    border: 1px solid rgba(14, 165, 233, 0.25);
+    background: rgba(14, 165, 233, 0.08);
+    border-radius: 12px;
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: var(--text);
+}
+
+.species-category-list {
+    display: grid;
+    gap: 16px;
+}
+
+.species-category-title {
+    margin: 0 0 10px;
+}

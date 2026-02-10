@@ -18,6 +18,7 @@ import {
 } from "react-router-dom";
 
 import {
+    listCompetitionPoints,
     saveCompetitionPoints,
 } from "@/clubadmin/api/competitionPoints";
 
@@ -59,8 +60,7 @@ import {
 
 import CompetitionPrizes from "@/clubadmin/pages/CompetitionPrizes/CompetitionPrizes";
 
-import CompetitionFeesCard from
-    "@/clubadmin/pages/Competitions/components/CompetitionFeesCard";
+import CompetitionFeesCard from   "@/clubadmin/pages/Competitions/components/CompetitionFeesCard";
 
 import type { CompetitionPointsRuleDTO } from "@/clubadmin/api/competitionPoints";
 
@@ -117,6 +117,13 @@ type Division = {
     name: string;
     sort_order: number;
 };
+
+type SpeciesPointsRule = {
+    tag_release_points: number;
+    landed_multiplier: number;
+    landed_divide_by_line_weight: boolean;
+};
+
 
 import {
     listCompetitionDivisions,
@@ -223,12 +230,16 @@ export default function EditCompetition() {
 
     // Save Dirty Data 
     const [divisionsDirty, setDivisionsDirty] = useState(false);
+    const [speciesPoints, setSpeciesPoints] =
+        useState<Record<number, SpeciesPointsRule>>({});
+    const [pointsDirty, setPointsDirty] = useState(false);
+    const [pointsLoaded, setPointsLoaded] = useState(false);
 
     // ================================================================
     // DERIVED DIRTY STATE (MUST BE ABOVE EFFECTS THAT USE IT)
     // ================================================================
 
-    const pageDirty = speciesDirty || divisionsDirty;
+    const pageDirty = speciesDirty || divisionsDirty || pointsDirty;
 
 
     // ================================================================
@@ -259,6 +270,9 @@ export default function EditCompetition() {
 
         (async () => {
             setLoading(true);
+            setPointsLoaded(false);
+            setSpeciesPoints({});
+            setPointsDirty(false);
             try {
                 // -------------------------------------------------------------
                 // 1️⃣ Load core competition
@@ -509,7 +523,8 @@ export default function EditCompetition() {
 
     function toggleSpecies(speciesId: number) {
         setSelectedSpeciesIds(prev => {
-            const next = prev.includes(speciesId)
+            const isSelected = prev.includes(speciesId);
+            const next = isSelected
                 ? prev.filter(id => id !== speciesId)
                 : [...prev, speciesId];
 
@@ -518,6 +533,16 @@ export default function EditCompetition() {
                 next.some(id => !savedSpeciesIds.includes(id));
 
             setSpeciesDirty(isDirty);
+
+            if (isSelected) {
+                setSpeciesPoints(current => {
+                    if (!current[speciesId]) return current;
+                    const { [speciesId]: _, ...rest } = current;
+                    return rest;
+                });
+            }
+
+            setPointsDirty(true);
             return next;
         });
     }
@@ -617,40 +642,53 @@ export default function EditCompetition() {
                 selectedSpeciesIds
             );
             // --------------------------------------------------
-            // 6️⃣ SPECIES POINTS
+            // 6️⃣ SPECIES POINTS (ONLY IF DIRTY)
             // --------------------------------------------------
-            const rules: CompetitionPointsRuleDTO[] = [];
+            if (pointsDirty) {
+                const rules: CompetitionPointsRuleDTO[] = [];
 
-            // TAG & RELEASE — FLAT
-            for (const rule of tagReleaseRules) {
-                for (const group of rule.species_group_ids) {
+                for (const s of selectedSpecies) {
+                    const rule = speciesPoints[s.id] ?? defaultSpeciesPoints;
+
+                    const discipline: "game" | "sport" =
+                        s.fish_type_id === allowedFishTypeIds[1] ? "sport" : "game";
+
                     rules.push({
-                        fishing_discipline: "game",
+                        fishing_discipline: discipline,
                         outcome: "tagged_released",
-                        species_group_code: group,
+
+                        // ✅ per-species selector
+                        species_id: s.id,
+                        // ✅ explicitly clear other selectors
+                        species_category_id: null,
+                        species_group_code: null,
+
                         points_mode: "flat",
-                        points_value: rule.points,
+                        points_value: rule.tag_release_points ?? 0,
                         divide_by_line_weight: false,
                         priority: 10,
                     });
+
+                    rules.push({
+                        fishing_discipline: discipline,
+                        outcome: "landed",
+
+                        // ✅ per-species selector
+                        species_id: s.id,
+                        // ✅ explicitly clear other selectors
+                        species_category_id: null,
+                        species_group_code: null,
+
+                        points_mode: "weight",
+                        points_value: rule.landed_multiplier ?? 1,
+                        divide_by_line_weight: rule.landed_divide_by_line_weight ?? false,
+                        priority: 20,
+                    });
                 }
+
+                await saveCompetitionPoints(id, { rules });
+                setPointsDirty(false);
             }
-
-            // GAME FISH — LANDED (WEIGHT)
-            for (const rule of gameFishRules) {
-                rules.push({
-                    fishing_discipline: "game",
-                    outcome: "landed",
-                    species_category_id: rule.species_category_id,
-                    points_mode: "weight",
-                    points_value: rule.formula.multiplier,
-                    divide_by_line_weight: rule.formula.divide_by_line_weight,
-                    priority: 20,
-                });
-            }
-
-            await saveCompetitionPoints(id, { rules });
-
             // --------------------------------------------------
             // 6️⃣ CLEAR DIRTY STATE (AUTHORITIVE RESET)
             // --------------------------------------------------
@@ -694,6 +732,7 @@ export default function EditCompetition() {
     // =========================================================================
     // DAY HELPERS
     // =========================================================================
+
     async function addDay() {
         if (!id) return;
 
@@ -807,11 +846,94 @@ export default function EditCompetition() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isQrOpen]);
 
+    const selectedSpecies = useMemo(() => {
+        const selected = new Set(selectedSpeciesIds);
+        return allSpecies.filter(s => selected.has(s.id));
+    }, [allSpecies, selectedSpeciesIds]);
 
+    const selectedSpeciesSorted = useMemo(
+        () => selectedSpecies.slice().sort((a, b) => a.name.localeCompare(b.name)),
+        [selectedSpecies]
+    );
+
+    const defaultSpeciesPoints: SpeciesPointsRule = {
+        tag_release_points: 0,
+        landed_multiplier: 1,
+        landed_divide_by_line_weight: false,
+    };
+
+    function updateSpeciesPointsRule(
+        speciesId: number,
+        patch: Partial<SpeciesPointsRule>
+    ) {
+        setSpeciesPoints(prev => {
+            const current = prev[speciesId] ?? defaultSpeciesPoints;
+            return {
+                ...prev,
+                [speciesId]: { ...current, ...patch },
+            };
+        });
+        setPointsDirty(true);
+    }
+
+    // Effects
+    useEffect(() => {
+        if (!id || pointsLoaded) return;
+
+        if (!selectedSpeciesIds.length) {
+            setSpeciesPoints({});
+            setPointsDirty(false);
+            setPointsLoaded(true);
+            return;
+        }
+
+        if (!allSpecies.length) return;
+
+        let cancelled = false;
+
+        (async () => {
+            const existing = await listCompetitionPoints(id);
+            if (cancelled) return;
+
+            const selected = new Set(selectedSpeciesIds);
+            const next: Record<number, SpeciesPointsRule> = {};
+
+            for (const s of allSpecies) {
+                if (!selected.has(s.id)) continue;
+                next[s.id] = { ...defaultSpeciesPoints };
+            }
+
+            for (const rule of existing) {
+                if (!rule.species_id || !selected.has(rule.species_id)) continue;
+
+                const current = next[rule.species_id] ?? { ...defaultSpeciesPoints };
+
+                if (rule.outcome === "tagged_released" && rule.points_mode === "flat") {
+                    current.tag_release_points = rule.points_value;
+                }
+
+                if (rule.outcome === "landed" && rule.points_mode === "weight") {
+                    current.landed_multiplier = rule.points_value;
+                    current.landed_divide_by_line_weight = rule.divide_by_line_weight;
+                }
+
+                next[rule.species_id] = current;
+            }
+
+            setSpeciesPoints(next);
+            setPointsDirty(false);
+            setPointsLoaded(true);
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [id, allSpecies, selectedSpeciesIds, pointsLoaded]);
 
     if (loading || !competition) {
         return <p className="muted">Loading…</p>;
     }
+
     const displayedClubName =
         clubName ?? (organisationId ? `Club (${organisationId})` : "Club");
 
@@ -1120,86 +1242,6 @@ export default function EditCompetition() {
                                 </div>
                             </div>
 
-                            <style>
-                                {`
-#late-registration-print {
-    display: none;
-}
-
-.late-registration-print__content {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 12px;
-    color: #000;
-    text-align: center;
-}
-
-.late-registration-print__title {
-    font-size: 32px;
-    font-weight: 800;
-    letter-spacing: 1px;
-}
-
-.late-registration-print__club {
-    font-size: 24px;
-    font-weight: 700;
-}
-
-.late-registration-print__competition {
-    font-size: 22px;
-    font-weight: 600;
-}
-
-.late-registration-print__instruction {
-    font-size: 16px;
-}
-
-.late-registration-print__url {
-    font-size: 14px;
-    word-break: break-all;
-    margin-top: 6px;
-}
-
-.late-registration-print__footer {
-    font-size: 11px;
-    color: #333;
-    margin-top: 6px;
-}
-
-@page {
-    size: A4 portrait;
-    margin: 10mm;
-}
-
-@media print {
-    body {
-        margin: 0;
-    }
-
-    body * {
-        visibility: hidden;
-    }
-
-    #late-registration-print,
-    #late-registration-print * {
-        visibility: visible;
-    }
-
-    #late-registration-print {
-        display: block;
-        position: fixed;
-        left: 0;
-        top: 0;
-        width: 210mm;
-        height: 297mm;
-        padding: 12mm;
-        box-sizing: border-box;
-        background: white;
-    }
-}
-                                `}
-                            </style>
                         </div>
                     </div>
                 )}
@@ -1253,134 +1295,84 @@ export default function EditCompetition() {
                             <h3>Species Points</h3>
 
                             <p className="muted">
-                                Configure how points are awarded for different fishing outcomes.
+                                Configure how points are awarded for selected species.
                             </p>
 
-                            {/* =====================================================
-                                TAG & RELEASE – GAME FISH
-                               ===================================================== */}
-                            <section className="points-section">
-                                <h4>Tag & Release – Game Fish</h4>
+                            {selectedSpeciesSorted.length === 0 ? (
+                                <p className="muted">No species selected for this competition.</p>
+                            ) : (
+                                <>
+                                    <div
+                                        style={{
+                                            display: "grid",
+                                            gridTemplateColumns: "minmax(220px, 1fr) 120px 120px 180px",
+                                            gap: 10,
+                                            alignItems: "center",
+                                            fontWeight: 600,
+                                            paddingBottom: 6,
+                                            borderBottom: "1px solid rgba(0,0,0,0.08)",
+                                        }}
+                                    >
+                                        <div>Species</div>
+                                        <div>Tag &amp; Release</div>
+                                        <div>Landed ×</div>
+                                        <div>Divide by line weight</div>
+                                    </div>
 
-                                <p className="muted">
-                                    Applies when outcome is <strong>Tagged & Released</strong>
-                                </p>
+                                    {selectedSpeciesSorted.map(s => {
+                                        const rule = speciesPoints[s.id] ?? defaultSpeciesPoints;
+                                        const categoryName = s.species_category?.name ?? "Other";
 
-                                {groupedSpecies.map(group => {
-                                    const rule = tagReleaseRules.find(
-                                        r => r.species_group_ids.includes(group.categoryName)
-                                    );
-
-                                    return (
-                                        <div
-                                            key={group.categoryName}
-                                            className="points-row points-row--flat"
-                                        >
-                                            {/* LEFT: LABEL + EXAMPLES */}
-                                            <div className="points-label">
-                                                <div>{group.categoryName}</div>
-                                                <div className="points-examples">
-                                                    {group.species
-                                                        .slice(0, 4)
-                                                        .map(s => s.name)
-                                                        .join(", ")}
-                                                    {group.species.length > 4 && "…"}
+                                        return (
+                                            <div
+                                                key={s.id}
+                                                style={{
+                                                    display: "grid",
+                                                    gridTemplateColumns: "minmax(220px, 1fr) 120px 120px 180px",
+                                                    gap: 10,
+                                                    alignItems: "center",
+                                                    padding: "6px 0",
+                                                }}
+                                            >
+                                                <div>
+                                                    <div>{s.name}</div>
+                                                    <div className="muted" style={{ fontSize: 12 }}>
+                                                        {categoryName}
+                                                    </div>
                                                 </div>
-                                            </div>
 
-                                            {/* RIGHT: FLAT POINTS */}
-                                            <div className="points-controls">
-                                                <input
-                                                    type="number"
-                                                    min={0}
-                                                    className="points-input small"
-                                                    value={rule?.points ?? 0}
-                                                    onChange={(e) => {
-                                                        const value = Number(e.target.value);
+                                                <div>
+                                                    <input
+                                                        type="number"
+                                                        min={0}
+                                                        className="points-input small"
+                                                        value={rule.tag_release_points}
+                                                        onChange={(e) => {
+                                                            const value = e.target.value === ""
+                                                                ? 0
+                                                                : Number(e.target.value);
 
-                                                        setTagReleaseRules(prev => {
-                                                            const next = prev.filter(
-                                                                r =>
-                                                                    !r.species_group_ids.includes(
-                                                                        group.categoryName
-                                                                    )
-                                                            );
-
-                                                            next.push({
-                                                                species_group_ids: [group.categoryName],
-                                                                points: value,
+                                                            updateSpeciesPointsRule(s.id, {
+                                                                tag_release_points: value,
                                                             });
-
-                                                            return next;
-                                                        });
-                                                    }}
-                                                />
-                                                <span className="points-unit">pts</span>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </section>
-
-                            {/* =====================================================
-                GAME FISH – LANDED
-            ===================================================== */}
-                            <section className="points-section">
-                                <h4>Game Fish – Landed</h4>
-
-                                {groupedSpecies.map(group => {
-                                    const rule = gameFishRules.find(
-                                        r => r.species_category_id === group.categoryName
-                                    );
-
-                                    return (
-                                        <div key={group.categoryName} className="points-row">
-                                            {/* LEFT: LABEL + EXAMPLES */}
-                                            <div className="points-label">
-                                                <div>{group.categoryName}</div>
-                                                <div className="points-examples">
-                                                    {group.species
-                                                        .slice(0, 4)
-                                                        .map(s => s.name)
-                                                        .join(", ")}
-                                                    {group.species.length > 4 && "…"}
+                                                        }}
+                                                    />
                                                 </div>
-                                            </div>
 
-                                            {/* RIGHT: FORMULA */}
-                                            <div className="points-controls">
-                                                <div className="points-formula">
-                                                    <strong>Weight ×</strong>
-
+                                                <div>
                                                     <input
                                                         type="number"
                                                         min={0}
                                                         step={0.1}
                                                         className="points-input small"
-                                                        value={rule?.formula.multiplier ?? 1}
+                                                        value={rule.landed_multiplier}
                                                         onChange={(e) => {
-                                                            const value = Number(e.target.value);
+                                                            const value = e.target.value === ""
+                                                                ? 1
+                                                                : Number(e.target.value);
 
-                                                            setGameFishRules(prev => {
-                                                                const next = prev.filter(
-                                                                    r =>
-                                                                        r.species_category_id !==
-                                                                        group.categoryName
-                                                                );
-
-                                                                next.push({
-                                                                    species_category_id:
-                                                                        group.categoryName,
-                                                                    formula: {
-                                                                        multiplier: value,
-                                                                        divide_by_line_weight:
-                                                                            rule?.formula
-                                                                                .divide_by_line_weight ??
-                                                                            false,
-                                                                    },
-                                                                });
-
-                                                                return next;
+                                                            updateSpeciesPointsRule(s.id, {
+                                                                landed_multiplier: value,
                                                             });
                                                         }}
                                                     />
@@ -1389,47 +1381,21 @@ export default function EditCompetition() {
                                                 <label className="points-checkbox">
                                                     <input
                                                         type="checkbox"
-                                                        checked={
-                                                            rule?.formula.divide_by_line_weight ??
-                                                            false
+                                                        checked={rule.landed_divide_by_line_weight}
+                                                        onChange={(e) =>
+                                                            updateSpeciesPointsRule(s.id, {
+                                                                landed_divide_by_line_weight: e.target.checked,
+                                                            })
                                                         }
-                                                        onChange={(e) => {
-                                                            const checked = e.target.checked;
-
-                                                            setGameFishRules(prev => {
-                                                                const next = prev.filter(
-                                                                    r =>
-                                                                        r.species_category_id !==
-                                                                        group.categoryName
-                                                                );
-
-                                                                next.push({
-                                                                    species_category_id:
-                                                                        group.categoryName,
-                                                                    formula: {
-                                                                        multiplier:
-                                                                            rule?.formula
-                                                                                .multiplier ?? 1,
-                                                                        divide_by_line_weight:
-                                                                            checked,
-                                                                    },
-                                                                });
-
-                                                                return next;
-                                                            });
-                                                        }}
                                                     />
                                                     Divide by line weight
                                                 </label>
                                             </div>
-                                        </div>
-                                    );
-                                })}
-                            </section>
+                                        );
+                                    })}
+                                </>
+                            )}
 
-                            {/* =====================================================
-                ACTIONS
-            ===================================================== */}
                             <div className="modal-actions">
                                 <button
                                     className="btn btn--ghost"
@@ -1614,36 +1580,30 @@ export default function EditCompetition() {
                 )}
 
 
-                {/* BRIEFING */}
                 {/* ================= BRIEFING ================= */}
                 {activeSection === "briefing" && (
                     <section className="card">
                         <h3>Competition Briefing</h3>
 
                         {!competition.briefing_required ? (
-                            /* ---------------------------------
-                               NOT REQUIRED — READ-ONLY STATE
-                            ---------------------------------- */
-                            <div className="empty-state muted">
-                                <p>
-                                    A competition briefing is <strong>not required</strong> for
-                                    this competition.
-                                </p>
-
-                                <p>
-                                    If you decide to hold a briefing, enable
-                                    <strong> “Briefing required”</strong> in the
-                                    <strong> Competition Details</strong> tab.
-                                </p>
-                            </div>
-                        ) : (
-                            /* ---------------------------------
-                               REQUIRED — EDITABLE FORM
-                            ---------------------------------- */
                             <>
+                                {/* NOT REQUIRED — READ-ONLY STATE */}
+                                <div className="empty-state muted">
+                                    <p>
+                                        A competition briefing is <strong>not required</strong> for this competition.
+                                    </p>
+
+                                    <p>
+                                        If you decide to hold a briefing, enable <strong>“Briefing required”</strong> in the{" "}
+                                        <strong>Competition Details</strong> tab.
+                                    </p>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                {/* REQUIRED — EDITABLE FORM */}
                                 <div className="info-inline">
-                                    Briefing is required for this competition.
-                                    Please enter the briefing details below.
+                                    Briefing is required for this competition. Please enter the briefing details below.
                                 </div>
 
                                 <div className="form-grid">
@@ -1657,15 +1617,11 @@ export default function EditCompetition() {
                                             onChange={(e) =>
                                                 setBriefing((b) => ({
                                                     ...b,
-                                                    briefing_date: clampBriefingDate(
-                                                        e.target.value || null
-                                                    ),
+                                                    briefing_date: clampBriefingDate(e.target.value || null),
                                                 }))
                                             }
                                         />
-                                        <small className="muted">
-                                            Must be the competition start date or the day before.
-                                        </small>
+                                        <small className="muted">Must be the competition start date or the day before.</small>
                                     </div>
 
                                     <div className="field span-4">
@@ -1713,8 +1669,6 @@ export default function EditCompetition() {
                     </section>
                 )}
 
-
-                {/* FISHING DAYS */}
                 {/* ================= FISHING DAYS ================= */}
                 {activeSection === "days" && (
                     <section className="card">
@@ -1730,9 +1684,7 @@ export default function EditCompetition() {
                                         <input
                                             type="date"
                                             value={d.day_date}
-                                            onChange={(e) =>
-                                                updateDay(i, { day_date: e.target.value })
-                                            }
+                                            onChange={(e) => updateDay(i, { day_date: e.target.value })}
                                         />
                                     </div>
 
@@ -1741,10 +1693,7 @@ export default function EditCompetition() {
                                         <select
                                             value={d.fishing_start_type}
                                             onChange={(e) =>
-                                                updateDay(i, {
-                                                    fishing_start_type:
-                                                        e.target.value as FishingStartType,
-                                                })
+                                                updateDay(i, { fishing_start_type: e.target.value as FishingStartType })
                                             }
                                         >
                                             <option value="None">None</option>
@@ -1757,11 +1706,7 @@ export default function EditCompetition() {
                                         <input
                                             type="time"
                                             value={d.fishing_start_time ?? ""}
-                                            onChange={(e) =>
-                                                updateDay(i, {
-                                                    fishing_start_time: e.target.value || null,
-                                                })
-                                            }
+                                            onChange={(e) => updateDay(i, { fishing_start_time: e.target.value || null })}
                                         />
                                     </div>
 
@@ -1770,10 +1715,7 @@ export default function EditCompetition() {
                                         <select
                                             value={d.fishing_end_type ?? "None"}
                                             onChange={(e) =>
-                                                updateDay(i, {
-                                                    fishing_end_type:
-                                                        e.target.value as "None" | "Required",
-                                                })
+                                                updateDay(i, { fishing_end_type: e.target.value as "None" | "Required" })
                                             }
                                         >
                                             <option value="None">None</option>
@@ -1786,11 +1728,7 @@ export default function EditCompetition() {
                                         <input
                                             type="time"
                                             value={d.fishing_end_time ?? ""}
-                                            onChange={(e) =>
-                                                updateDay(i, {
-                                                    fishing_end_time: e.target.value || null,
-                                                })
-                                            }
+                                            onChange={(e) => updateDay(i, { fishing_end_time: e.target.value || null })}
                                         />
                                     </div>
 
@@ -1798,12 +1736,7 @@ export default function EditCompetition() {
                                         <label>Weigh-in type</label>
                                         <select
                                             value={d.weighin_type}
-                                            onChange={(e) =>
-                                                updateDay(i, {
-                                                    weighin_type:
-                                                        e.target.value as WeighinType,
-                                                })
-                                            }
+                                            onChange={(e) => updateDay(i, { weighin_type: e.target.value as WeighinType })}
                                         >
                                             <option value="None">None</option>
                                             <option value="Optional">Optional</option>
@@ -1819,10 +1752,7 @@ export default function EditCompetition() {
                                                     type="time"
                                                     value={d.weighin_start_time ?? ""}
                                                     onChange={(e) =>
-                                                        updateDay(i, {
-                                                            weighin_start_time:
-                                                                e.target.value || null,
-                                                        })
+                                                        updateDay(i, { weighin_start_time: e.target.value || null })
                                                     }
                                                 />
                                             </div>
@@ -1832,12 +1762,7 @@ export default function EditCompetition() {
                                                 <input
                                                     type="time"
                                                     value={d.weighin_end_time ?? ""}
-                                                    onChange={(e) =>
-                                                        updateDay(i, {
-                                                            weighin_end_time:
-                                                                e.target.value || null,
-                                                        })
-                                                    }
+                                                    onChange={(e) => updateDay(i, { weighin_end_time: e.target.value || null })}
                                                 />
                                             </div>
 
@@ -1847,10 +1772,7 @@ export default function EditCompetition() {
                                                     type="time"
                                                     value={d.weighin_cutoff_time ?? ""}
                                                     onChange={(e) =>
-                                                        updateDay(i, {
-                                                            weighin_cutoff_time:
-                                                                e.target.value || null,
-                                                        })
+                                                        updateDay(i, { weighin_cutoff_time: e.target.value || null })
                                                     }
                                                 />
                                             </div>
@@ -1862,11 +1784,7 @@ export default function EditCompetition() {
                                             <input
                                                 type="checkbox"
                                                 checked={!!d.overnight_allowed}
-                                                onChange={(e) =>
-                                                    updateDay(i, {
-                                                        overnight_allowed: e.target.checked,
-                                                    })
-                                                }
+                                                onChange={(e) => updateDay(i, { overnight_allowed: e.target.checked })}
                                             />
                                             Overnight fishing allowed
                                         </label>
@@ -1876,19 +1794,15 @@ export default function EditCompetition() {
                                         <label>Notes</label>
                                         <textarea
                                             value={d.notes ?? ""}
-                                            onChange={(e) =>
-                                                updateDay(i, { notes: e.target.value })
-                                            }
+                                            onChange={(e) => updateDay(i, { notes: e.target.value })}
                                         />
                                     </div>
                                 </div>
-
-
                             </section>
                         ))}
 
                         <div className="actions">
-                            <button className="btn" onClick={addDay}>
+                            <button type="button" className="btn" onClick={addDay}>
                                 + Add Fishing Day
                             </button>
                         </div>
@@ -1898,7 +1812,6 @@ export default function EditCompetition() {
                 {/* ================= SPECIES ================= */}
                 {activeSection === "species" && (
                     <section className="card">
-                        {/* ================= HEADER ROW ================= */}
                         <div className="species-header-row">
                             <div className="species-title">
                                 <h3>Eligible Species</h3>
@@ -1908,25 +1821,18 @@ export default function EditCompetition() {
                                 {allowedFishTypeIds.length > 1 && (
                                     <div className="species-discipline-toggle">
                                         {allowedFishTypeIds.map((fishTypeId) => {
-                                            const count = selectedSpeciesIds.filter(id =>
-                                                allSpecies.some(
-                                                    s =>
-                                                        s.id === id &&
-                                                        s.fish_type_id === fishTypeId
-                                                )
+                                            const count = selectedSpeciesIds.filter((id) =>
+                                                allSpecies.some((s) => s.id === id && s.fish_type_id === fishTypeId)
                                             ).length;
 
                                             return (
                                                 <button
                                                     key={fishTypeId}
                                                     type="button"
-                                                    className={`btn btn--sm ${activeFishTypeId === fishTypeId ? "primary" : ""
-                                                        }`}
+                                                    className={`btn btn--sm ${activeFishTypeId === fishTypeId ? "primary" : ""}`}
                                                     onClick={() => setActiveFishTypeId(fishTypeId)}
                                                 >
-                                                    {fishTypeId === allowedFishTypeIds[0]
-                                                        ? "Game Fishing"
-                                                        : "Sport Fishing"}
+                                                    {fishTypeId === allowedFishTypeIds[0] ? "Game Fishing" : "Sport Fishing"}
                                                     {count > 0 && ` (${count})`}
                                                 </button>
                                             );
@@ -1934,52 +1840,32 @@ export default function EditCompetition() {
                                     </div>
                                 )}
 
-                                {/* NEW: Species Points */}
                                 <button
                                     type="button"
                                     className="btn btn--sm"
-                                    onClick={() => {
-
-                                        setShowSpeciesPoints(true);
-                                    }}
+                                    onClick={() => setShowSpeciesPoints(true)}
                                     disabled={selectedSpeciesIds.length === 0}
                                 >
                                     Species Points
                                 </button>
-
                             </div>
                         </div>
 
-
-
-                        {/* ================= SPECIES BY CATEGORY ================= */}
                         <div className="species-category-list">
-                            {groupedSpecies.map(group => (
-                                <section
-                                    key={group.categoryName}
-                                    className="species-category"
-                                >
-                                    <h4 className="species-category-title">
-                                        {group.categoryName}
-                                    </h4>
+                            {groupedSpecies.map((group) => (
+                                <section key={group.categoryName} className="species-category">
+                                    <h4 className="species-category-title">{group.categoryName}</h4>
 
                                     <div className="species-grid">
-                                        {group.species.map(s => {
-                                            const checked =
-                                                selectedSpeciesIds.includes(s.id);
+                                        {group.species.map((s) => {
+                                            const checked = selectedSpeciesIds.includes(s.id);
 
                                             return (
-                                                <label
-                                                    key={s.id}
-                                                    className={`species-tile ${checked ? "active" : ""
-                                                        }`}
-                                                >
+                                                <label key={s.id} className={`species-tile ${checked ? "active" : ""}`}>
                                                     <input
                                                         type="checkbox"
                                                         checked={checked}
-                                                        onChange={() =>
-                                                            toggleSpecies(s.id)
-                                                        }
+                                                        onChange={() => toggleSpecies(s.id)}
                                                     />
                                                     <span>{s.name}</span>
                                                 </label>
@@ -1989,21 +1875,18 @@ export default function EditCompetition() {
                                 </section>
                             ))}
                         </div>
-
                     </section>
                 )}
+
                 {/* ================= PRIZES ================= */}
                 {activeSection === "prizes" && !inPrizeGiving && (
-                    <CompetitionPrizes
-                        embedded
-                        competition={competition}
-                        days={days}
-                        divisions={competitionDivisions}
-                    />
+                    <CompetitionPrizes embedded competition={competition} days={days} divisions={displayedDivisions} />
                 )}
 
-
                 <Outlet />
+
+                <hr className="edit-footer-divider" />
+
 
 
 

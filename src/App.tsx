@@ -1,4 +1,14 @@
-﻿import { Routes, Route, Navigate } from "react-router-dom";
+﻿// ============================================================================
+// File: App.tsx
+// Path: src/App.tsx
+// Description:
+//  - App router
+//  - Adds Boat Points page under /clubadmin/:organisationId/boat-points
+//  - Keeps Prize Giving under /clubadmin/:organisationId/prize-giving
+//  - Removes the accidental nested duplicate /clubadmin/:organisationId route
+// ============================================================================
+
+import { Routes, Route, Navigate } from "react-router-dom";
 
 /* =====================================================================
    🌍 PUBLIC PAGES
@@ -29,6 +39,11 @@ import PrizeEngineValidationPage from "./clubadmin/pages/Competitions/PrizeEngin
    🏆 PRIZE GIVING (LIVE / PRESENTATION)
    ===================================================================== */
 import PrizeGiving from "@/clubadmin/pages/PrizeGiving";
+
+/* =====================================================================
+   📊 BOAT POINTS (VIEWER)
+   ===================================================================== */
+import BoatPointsPage from "./clubadmin/pages/BoatPointsPage";
 
 /* =====================================================================
    🎰 RANDOM LIST DRAWS
@@ -62,7 +77,6 @@ import FishingSpecies from "@/admin/pages/Settings/Fishing/Species";
 export default function App() {
     return (
         <Routes>
-
             {/* ===============================================================
                🌍 PUBLIC SITE
                =============================================================== */}
@@ -76,10 +90,7 @@ export default function App() {
             {/* ===============================================================
                🛠️ CLUB ADMIN (ORG-SCOPED)
                =============================================================== */}
-            <Route
-                path="/clubadmin/:organisationId"
-                element={<ClubAdminLayout />}
-            >
+            <Route path="/clubadmin/:organisationId" element={<ClubAdminLayout />}>
                 {/* Default landing */}
                 <Route index element={<Admin />} />
 
@@ -93,41 +104,29 @@ export default function App() {
                 {/* ===========================================================
                    🏆 PRIZE GIVING (LIVE SCREEN)
                    =========================================================== */}
-                <Route
-                    path="prize-giving"
-                    element={<PrizeGiving />}
-                />
+                <Route path="prize-giving" element={<PrizeGiving />} />
+
+                {/* ===========================================================
+                   📊 BOAT POINTS (VIEWER)
+                   =========================================================== */}
+                <Route path="boat-points" element={<BoatPointsPage />} />
 
                 {/* ===========================================================
                    🧭 ADMIN AREA (COMPETITION SETUP)
                    =========================================================== */}
                 <Route path="admin" element={<Admin />}>
-                    <Route
-                        index
-                        element={<Navigate to="competitions" replace />}
-                    />
+                    <Route index element={<Navigate to="competitions" replace />} />
 
-                    <Route
-                        path="competitions"
-                        element={<CompetitionsList />}
-                    >
+                    <Route path="competitions" element={<CompetitionsList />}>
                         <Route path="add" element={<AddCompetition />} />
 
                         <Route path=":id">
-                            <Route
-                                index
-                                element={<Navigate to="edit" replace />}
-                            />
+                            <Route index element={<Navigate to="edit" replace />} />
 
-                            <Route
-                                path="edit"
-                                element={<EditCompetition />}
-                            >
+                            <Route path="edit" element={<EditCompetition />}>
                                 <Route
                                     path="prize-giving"
-                                    element={
-                                        <PrizeEngineValidationPage embedded />
-                                    }
+                                    element={<PrizeEngineValidationPage embedded />}
                                 />
                             </Route>
                         </Route>
@@ -162,10 +161,7 @@ export default function App() {
                     <Route path="sports">
                         <Route path="fishing" element={<FishingSettings />}>
                             <Route index element={<FishingLanding />} />
-                            <Route
-                                path="species"
-                                element={<FishingSpecies />}
-                            />
+                            <Route path="species" element={<FishingSpecies />} />
                         </Route>
                     </Route>
                 </Route>
@@ -175,7 +171,6 @@ export default function App() {
                🚑 FALLBACK
                =============================================================== */}
             <Route path="*" element={<Navigate to="/" replace />} />
-
         </Routes>
     );
 }

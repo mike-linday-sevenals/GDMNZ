@@ -363,6 +363,215 @@ export async function getCompetition(
         prize_mode_id: prizeMode?.id ?? null,
     };
 }
+// ============================================================================
+// Submitted fish review (list + update) — reads from catch_submission
+// ============================================================================
+
+export type SubmittedFishRow = {
+    id: string;
+    created_at: string;
+
+    competition_id: string;
+    competition_day_id: string | null;
+
+    competitor_id: string | null;
+    competitor_name: string | null;
+    angler_number: string | null;
+
+    boat_name: string | null;
+    boat_type: string | null;
+
+    fishing_discipline: "sport" | "game" | "mixed" | string | null;
+
+    division_id: string | null;
+
+    species_id: string | null;
+    species_name: string | null;
+
+    outcome: "landed" | "tagged_released" | null;
+
+    weight_kg: number | null;
+    length_cm: number | null;
+
+    date_caught: string | null; // YYYY-MM-DD
+    time_caught: string | null; // HH:MM:SS
+
+    hooked_time: string | null;
+    landed_time: string | null;
+
+    priority_timestamp: string | null;
+
+    skipper_name: string | null;
+    location: string | null;
+    notes: string | null;
+};
+
+const SUBMISSION_TABLE = "catch_submission";
+
+function cleanTime(v: string | null | undefined): string | null {
+    const t = String(v ?? "").trim();
+    if (!t) return null;
+    return t.length === 5 ? `${t}:00` : t;
+}
+
+function toStr(v: any): string | null {
+    if (v === null || v === undefined) return null;
+    const s = String(v).trim();
+    return s ? s : null;
+}
+
+function toNum(v: any): number | null {
+    if (v === null || v === undefined || v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+}
+
+export async function listSubmittedFish(
+    competitionId: string
+): Promise<SubmittedFishRow[]> {
+    if (!client) throw new Error("Supabase client not initialised");
+
+    const { data, error } = await client
+        .from(SUBMISSION_TABLE)
+        .select("*")
+        .eq("competition_id", competitionId)
+        .order("created_at", { ascending: false });
+
+    if (error) throw error;
+
+    const rows = (data ?? []) as any[];
+
+    // Optional enrichment (only if your catch_submission rows do NOT already contain names)
+    const competitorIds = [
+        ...new Set(rows.map((r) => r.competitor_id).filter(Boolean)),
+    ];
+    const speciesIds = [
+        ...new Set(rows.map((r) => r.species_id).filter((x) => x !== null && x !== undefined)),
+    ];
+
+    const [compRes, spRes] = await Promise.all([
+        competitorIds.length
+            ? client
+                .from("competitor")
+                .select("id, full_name, angler_number, boat, boat_type")
+                .in("id", competitorIds)
+            : Promise.resolve({ data: [] as any[], error: null as any }),
+
+        speciesIds.length
+            ? client.from("species").select("id, name").in("id", speciesIds)
+            : Promise.resolve({ data: [] as any[], error: null as any }),
+    ]);
+
+    if (compRes.error) throw compRes.error;
+    if (spRes.error) throw spRes.error;
+
+    const compMap = new Map((compRes.data ?? []).map((c: any) => [String(c.id), c]));
+    const spMap = new Map((spRes.data ?? []).map((s: any) => [String(s.id), s]));
+
+    return rows.map((r: any) => {
+        const comp = r.competitor_id ? compMap.get(String(r.competitor_id)) : null;
+        const sp = r.species_id !== null && r.species_id !== undefined ? spMap.get(String(r.species_id)) : null;
+
+        return {
+            id: String(r.id),
+            created_at: String(r.created_at),
+
+            competition_id: toStr(r.competition_id) ?? competitionId,
+            competition_day_id: toStr(r.competition_day_id),
+
+            competitor_id: toStr(r.competitor_id),
+            competitor_name: toStr(r.competitor_name) ?? toStr(comp?.full_name),
+            angler_number: toStr(r.angler_number) ?? toStr(comp?.angler_number),
+
+            boat_name: toStr(r.boat_name) ?? toStr(comp?.boat),
+            boat_type: toStr(r.boat_type) ?? toStr(comp?.boat_type),
+
+            fishing_discipline: toStr(r.fishing_discipline),
+            division_id: toStr(r.division_id),
+
+            species_id:
+                r.species_id !== null && r.species_id !== undefined
+                    ? String(r.species_id)
+                    : null,
+            species_name: toStr(r.species_name) ?? toStr(sp?.name),
+
+            outcome: (toStr(r.outcome) as any) ?? null,
+
+            weight_kg: toNum(r.weight_kg),
+            length_cm: toNum(r.length_cm),
+
+            date_caught: toStr(r.date_caught),
+            time_caught: cleanTime(toStr(r.time_caught)),
+
+            hooked_time: cleanTime(toStr(r.hooked_time)),
+            landed_time: cleanTime(toStr(r.landed_time)),
+
+            priority_timestamp: toStr(r.priority_timestamp),
+
+            skipper_name: toStr(r.skipper_name),
+            location: toStr(r.location),
+            notes: toStr(r.notes),
+        } satisfies SubmittedFishRow;
+    });
+}
+
+export async function updateSubmittedFish(
+    fishId: string,
+    patch: Partial<SubmittedFishRow>
+): Promise<void> {
+    if (!client) throw new Error("Supabase client not initialised");
+
+    // Read the row so we only update columns that exist
+    const { data: existing, error: readErr } = await client
+        .from(SUBMISSION_TABLE)
+        .select("*")
+        .eq("id", fishId)
+        .maybeSingle();
+
+    if (readErr) throw readErr;
+    if (!existing) throw new Error("Submission row not found");
+
+    const cols = new Set(Object.keys(existing));
+    const payload: any = {};
+
+    if (cols.has("species_id") && patch.species_id !== undefined)
+        payload.species_id = patch.species_id ? Number(patch.species_id) : null;
+
+    if (cols.has("outcome") && patch.outcome !== undefined)
+        payload.outcome = patch.outcome ?? null;
+
+    if (cols.has("weight_kg") && patch.weight_kg !== undefined)
+        payload.weight_kg = patch.weight_kg ?? null;
+
+    if (cols.has("length_cm") && patch.length_cm !== undefined)
+        payload.length_cm = patch.length_cm ?? null;
+
+    if (cols.has("date_caught") && patch.date_caught !== undefined)
+        payload.date_caught = patch.date_caught ?? null;
+
+    if (cols.has("time_caught") && patch.time_caught !== undefined)
+        payload.time_caught = cleanTime(patch.time_caught) ?? null;
+
+    if (cols.has("hooked_time") && patch.hooked_time !== undefined)
+        payload.hooked_time = cleanTime(patch.hooked_time) ?? null;
+
+    if (cols.has("landed_time") && patch.landed_time !== undefined)
+        payload.landed_time = cleanTime(patch.landed_time) ?? null;
+
+    if (cols.has("location") && patch.location !== undefined)
+        payload.location = patch.location ?? null;
+
+    if (cols.has("skipper_name") && patch.skipper_name !== undefined)
+        payload.skipper_name = patch.skipper_name ?? null;
+
+    if (cols.has("notes") && patch.notes !== undefined)
+        payload.notes = patch.notes ?? null;
+
+    if (Object.keys(payload).length === 0) return;
+
+    const { error } = await client.from(SUBMISSION_TABLE).update(payload).eq("id", fishId);
+    if (error) throw error;
+}
 
 // ============================================================================
 // PRIZES
@@ -1417,6 +1626,9 @@ export async function joinBoat(
 
     return data as JoinBoatResult;
 }
+
+
+
 
 // ============================================================================
 // END OF FILE
