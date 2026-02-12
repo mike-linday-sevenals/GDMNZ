@@ -10,6 +10,7 @@
     "postbuild": "node scripts/generate-sitemap.mjs"
   },
   "dependencies": {
+    "@react-pdf/renderer": "^4.3.2",
     "@supabase/supabase-js": "^2.76.1",
     "express": "^5.2.1",
     "framer-motion": "^12.29.2",

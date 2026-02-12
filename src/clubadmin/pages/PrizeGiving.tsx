@@ -15,6 +15,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, Link, useSearchParams } from "react-router-dom";
 
+import { buildPrizeGivingPdfModel } from "@/clubadmin/export/prizeGivingExport";
+import { downloadPrizeGivingPdf } from "@/clubadmin/export/prizeGivingPdf";
+
+
 import {
     getCompetitionBriefing,
     listCompetitionDays,
@@ -118,6 +122,7 @@ function buildDayRange(day: CompetitionDay): { startAt: Date; endAt: Date } | nu
         endAt: new Date(`${day.day_date}T${endTime}`),
     };
 }
+
 
 function findActiveContainer(
     containers: PrizeResultContainer[]
@@ -265,6 +270,8 @@ function buildStageLine(r: PrizeEnginePreviewRow): string {
 // Component
 // ============================================================================
 
+
+
 export default function PrizeGiving() {
     const [searchParams] = useSearchParams();
     const qpCompetitionId = searchParams.get("competitionId");
@@ -278,6 +285,39 @@ export default function PrizeGiving() {
 
     const [prizeDefs, setPrizeDefs] = useState<PrizeDefinitionRow[]>([]);
     const [spotPrizes, setSpotPrizes] = useState<SpotPrizeDisplay[]>([]);
+
+    const [printing, setPrinting] = useState(false);
+
+    async function handlePrintPdf() {
+        if (!competitionId) return;
+
+        setPrinting(true);
+        try {
+            const competitionName =
+                competitions.find((c: any) => c.id === competitionId)?.name ??
+                "Competition";
+
+            const fallbackSpotPrizeNameBySection: Record<string, string | null> = {};
+
+            const model = await buildPrizeGivingPdfModel({
+                competitionId,
+                competitionName,
+                prizeDefs,
+                competitionDays,
+                fallbackSpotPrizeNameBySection,
+            });
+
+            const safe = competitionName
+                .replace(/[^\w\- ]+/g, "")
+                .trim()
+                .replace(/\s+/g, "_");
+
+            await downloadPrizeGivingPdf(model, `${safe}_Prize_Giving.pdf`);
+        } finally {
+            setPrinting(false);
+        }
+    }
+
 
     const [resultContainers, setResultContainers] =
         useState<PrizeResultContainer[]>([]);
@@ -730,6 +770,17 @@ export default function PrizeGiving() {
                             Boat Points
                         </Link>
                     )}
+
+                    <button
+                        type="button"
+                        className="btn"
+                        onClick={handlePrintPdf}
+                        disabled={printing || !competitionId}
+                    >
+                        {printing ? "Generating…" : "Print (PDF)"}
+                    </button>
+
+
 
                 </div>
             )}
